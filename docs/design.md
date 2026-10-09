@@ -21,16 +21,31 @@ A guard layer that other packages register rules with. One place decides which t
 A rule is plain data:
 
 - A tool match: the name pi registers, or a `*` pattern. For MCP tools the name is `mcp__<server>__<tool>`, where pi rewrites every character other than letters, digits and underscore to `_`, and adds an 8-character hash suffix when the name is longer than 64 characters or when two tools sanitize to the same name (see "Match on the name pi registers").
-- An optional narrowing by arguments (for example, only when a given field has a given value).
+- An optional narrowing by arguments (for example, only when a given field has a given value). When the input is not a plain object, an `ask` or `never` rule still applies and an `allow` rule does not.
 - A verdict: `allow`, `ask` or `never`.
 - For `ask`, a `preview(args)` that returns the text the dialog shows, so the user sees the exact values that would be sent.
 - For `ask`, an optional approval window. Without one, every call asks.
 
 ### Default for tools no rule names
 
-Use the annotations that `pi.getAllTools()` reports (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`). A tool without `readOnlyHint` true asks. A rule pack can mark the read tools of a server that declares no hints as `allow`.
+Each tool falls into one of four sources, and each source has a default verdict. The defaults are set in config (see "Config") and can be `allow`, `ask`, `never` or `hints`. `hints` means: pass when the tool declares `readOnlyHint` true, ask otherwise.
 
-Annotations are declared by the server and pi does not verify them. They are a default, not a boundary. A `never` or `ask` rule always wins over a hint.
+| Source | How the layer tells | Shipped default |
+|---|---|---|
+| `mcp` | the registered name or the tool's `namespace` starts with `mcp__` | `hints` |
+| `builtin` | the name is one of pi's built-in tools (`read`, `bash`, `powershell`, `edit`, `write`, `grep`, `find`, `ls`) and `sourceInfo.path` in `pi.getAllTools()` is `builtin:<tool name>` | `allow` |
+| `extension` | any other tool `pi.getAllTools()` lists | `allow` |
+| `unknown` | a tool `pi.getAllTools()` does not list when the call arrives | `ask`, not configurable |
+
+Read from pi 1.1.0's source, not measured: built-in tools get the synthetic `sourceInfo` `builtin:<name>`, and an extension that registers a tool under a built-in's name (for example its own `bash`) replaces the definition and its `sourceInfo`, so it counts as `extension`. pi's own built-in extensions (`codemode`, `tool_search`, the MCP resource tools) count as `extension`. They also have `builtin:<name>` paths, and `builtin:codemode` registers a tool named `codemode`, which is why the path alone is not enough. The nested calls `codemode` makes are classified on their own. MCP tools registered by an adapter extension instead of pi's built-in MCP still count as `mcp` because of their name, so the stricter default applies.
+
+Only MCP tools and the MCP resource tools carry annotations in pi 1.1.0 (read from source): built-in tools, `codemode` and extension tools have none. That is why `hints` is the shipped default for `mcp` only. Strict setups (Plan mode, or a user who wants every write confirmed) set `builtin` or `extension` to `ask` or `hints`.
+
+Annotations are declared by the server and pi does not verify them. They are a default, not a boundary. A `never` or `ask` rule always wins over a hint, and over a source default. An `allow` rule wins over a source default too, including one a project file tightened: rules come from installed packages, not from the project folder, and that is how a pack marks an unannotated server's read tools as safe.
+
+### Config
+
+The source defaults are read from `~/.pi/agent/containment.json` (global) and `.pi/containment.json` (project). pi reads project files only after the user trusts the project, but trust does not make their content safe, so the project file may only tighten: for each source the stricter of the two values applies, in the order `allow` < `hints` < `ask` < `never`. A config file that cannot be read or parsed is reported by the status command, and every source is raised to at least `ask` until it is fixed (a source already at `never` stays `never`).
 
 ### One dialog, one fail-closed path
 
@@ -98,7 +113,7 @@ Match on the name pi registers. Do not match on the server's own tool name or on
 - A rule by original names matches a call whose registered name equals either candidate. Matching the suffixed form too means a write cannot escape a rule by colliding.
 - If the plain candidate is held by a different server's tool, the rule must not match it. The owning server is known from the tool's `namespace` in `pi.getAllTools()`, which is unique per server because pi rejects servers whose namespaces clash (read from source: `config.js`). This uses `namespace` only to identify the server, never to build a tool name. `ToolInfo` carries no label or original tool name. When the layer cannot tell which tool owns a plain name, it fails closed: it applies the stricter verdict of the rules involved.
 - MCP tools are not listed yet at `session_start`. The check that reports rules matching no live tool runs on `mcp_servers_change` and again when a call arrives, and the status command shows rules still unmatched.
-- A `*` pattern written against the unsuffixed form can miss a suffixed name, so patterns are matched against both the registered name and the registered name with any `_<8 hex>` suffix removed. Do not build tool names from `namespace`, which sanitizes differently. The algorithm is pi's, not a public API, so the layer pins it with tests against the pi version it supports.
+- A `*` pattern written against the unsuffixed form can miss a suffixed name, so `ask` and `never` patterns are matched against both the registered name and the registered name with any `_<8 hex>` suffix removed. `allow` patterns match the registered name only: the stripped form could name a different tool whose real name ends in `_` and 8 hex characters. Do not build tool names from `namespace`, which sanitizes differently. The algorithm is pi's, not a public API, so the layer pins it with tests against the pi version it supports.
 
 Plan mode's bash allowlist is a different problem. It parses shell (`extensions/chassis/readonly-command.ts`) and decides whether a command line can write. That stays in pi-chassis and out of the rules layer. Phase 2 replaces the need for it where an OS sandbox is available, and it remains the fallback where one is not.
 
@@ -136,8 +151,10 @@ A list for the implementer:
 - A rule pack that skips the registration choice throws at registration.
 - A nested codemode call is gated.
 - A nested call from a trusted parent tool is not.
-- A tool no rule names asks when it has no `readOnlyHint`, and passes when it has `readOnlyHint` true.
+- With the shipped config, an MCP tool no rule names asks when it has no `readOnlyHint`, and passes when it has `readOnlyHint` true.
 - An unannotated server's read tools pass only when a rule says so.
+- Classification: a built-in tool is `builtin`; an extension's override of a built-in name is `extension`; an adapter's `mcp__` tool is `mcp`; a tool `pi.getAllTools()` does not list asks.
+- Config: each source default takes effect; a project file can tighten but never loosen a global value; an unreadable config falls back to asking.
 - A write cannot get past by differing in case, through a `*` pattern, or through a hash-suffixed tool (one with a name over 64 characters and one whose sanitized name collides, such as `a-b` and `a_b` on one server).
 - The computed registered name matches pi's for plain, long and colliding names, including both tools of a same-server collision and the suffixed side of a cross-server collision.
 - A rule written for one server never matches the other server's tool in a cross-server collision, whichever side kept the plain name.
