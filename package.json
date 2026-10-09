@@ -1,0 +1,14 @@
+{
+  "name": "pi-containment",
+  "version": "0.0.0",
+  "description": "A guard layer for pi tool calls (placeholder: not yet implemented)",
+  "license": "MIT",
+  "author": "Zach Koncir",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/one24-ai/pi-containment.git"
+  },
+  "homepage": "https://github.com/one24-ai/pi-containment#readme",
+  "keywords": ["pi-package", "pi", "guard", "permissions", "sandbox"],
+  "files": ["README.md", "LICENSE"]
+}
