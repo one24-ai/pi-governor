@@ -34,9 +34,11 @@ Annotations are declared by the server and pi does not verify them. They are a d
 
 ### One dialog, one fail-closed path
 
-Every `ask` rule goes through the same dialog and the same failure behaviour. With no UI (print mode, RPC without a client, a subagent child) an `ask` call is blocked, and the reason tells the model to ask the user instead.
+Every `ask` rule goes through the same dialog and the same failure behaviour. With no UI (print mode, a subagent child) an `ask` call is blocked, and the reason tells the model to ask the user instead.
 
-A declined dialog also blocks, and the reason tells the model not to retry the call.
+`ctx.hasUI` is not enough to detect a missing UI. In RPC mode it is true even when no client is attached, and a dialog then waits for an answer that never comes. So every dialog is opened with a timeout, and a timeout counts as a decline.
+
+A declined dialog also blocks, and the reason tells the model not to retry the call. A timed-out dialog blocks with a reason that says nobody answered.
 
 ### Approval windows
 
@@ -65,28 +67,38 @@ A command (for example `/governor`) lists the live rules, the live approvals and
 
 ## Findings
 
-Most of these were measured in a live pi session; the one marked as read from types was not. They were measured with pi 1.1. Re-verify all of them against the pi version this package's `peerDependencies` names before building.
+Re-verified on 2026-10-09 against pi 1.1.0 (`@earendil-works/pi-coding-agent`), in print mode, RPC mode and a pi-subagents foreground child, using a probe extension and a local MCP server with tools named to trigger each naming case. Items marked as read from source or types were checked in pi's `dist` files, not measured. Re-verify against the pi version this package's `peerDependencies` names whenever that changes.
 
 - `tool_call` handlers fire for every MCP call, including calls that a codemode script or another tool makes. Those events carry `parentToolCallId`, and nested ids look like `<parent id>/<n>`. The parent's `tool_execution_start` event carries its tool name, so a guard can learn which tool made a nested call.
-- In print mode `ctx.hasUI` was false and `ctx.mode` was `"print"`.
+- A `{ block: true, reason }` from a `tool_call` handler on a nested call reaches the codemode script as a thrown error carrying the reason.
+- In print mode `ctx.hasUI` was false and `ctx.mode` was `"print"`. A pi-subagents foreground child also ran with `mode` `"print"` and `hasUI` false.
+- In RPC mode with no client answering, `ctx.mode` was `"rpc"` and `ctx.hasUI` was true. `ctx.ui.confirm(..., { timeout: 3000 })` emitted an `extension_ui_request` and resolved false after 3 seconds. Without a timeout it would wait indefinitely (read from `docs/rpc-extension-ui.md`, not measured).
+- `pi.getAllTools()` lists no MCP tools at `session_start`, `before_agent_start` or the first `turn_start`. MCP servers connect in the background, and their tools appear once connected; by the first `tool_call` they were listed. Anything that inspects live MCP tools has to run later, on `mcp_servers_change` or when a call arrives.
+- A tool with no annotations has no `annotations` key in `pi.getAllTools()`; declared hints are passed through as the server sent them.
 - Annotations differ by server. `pi.getAllTools()` reported, for one issue-tracker server, all 20 tools annotated (14 with `readOnlyHint` true, the 6 writes false). For one chat server it reported 18 annotated (12 read-only). For one deployment-control server it reported 22 tools with none annotated. codemode's `ALL_TOOLS` does not carry annotations; only `pi.getAllTools()` does.
 - Read from pi's type declarations, not measured: a `tool_call` handler receives an `ExtensionContext`, and only the context a running tool's `execute()` receives (`ExtensionToolContext`) has `executeTool()`. So a handler cannot call tools, and a preview cannot look anything up. A transition that takes an id can show the status name only if the session already read the transitions.
-- `pi.getAllTools()` gives each MCP tool a `namespace` (for example `mcp__tracker` for `mcp__tracker__create_issue`), an `annotations` object and an `exposure`. Read from pi's source, not measured: the namespace is `mcp__<server>` with only `-` replaced by `_`, while tool names replace every character other than letters, digits and underscore, so the two can disagree for server names with other characters. No tool in the measured session had a hash suffix.
-- Read from pi's source (`createMcpToolName` in its MCP extension), not measured: the registered name is `mcp__<server>__<tool>` sanitized as above. When that is longer than 64 characters, or already taken by a different MCP tool, pi cuts it and appends `_` plus the first 8 hex characters of SHA-256 over `<server>\0<tool>` (the original names). The suffix is deterministic.
+- `pi.getAllTools()` gives each MCP tool a `namespace` (for example `mcp__tracker` for `mcp__tracker__create_issue`), an `annotations` object and an `exposure`. Read from pi's source, not measured: the namespace is `mcp__<server>` with only `-` replaced by `_`, while tool names replace every character other than letters, digits and underscore, so the two can disagree for server names with other characters. Measured: a tool `p__q` on server `srv-a` reported namespace `mcp__srv_a`, while tool `q` on server `srv_a__p` reported `mcp__srv_a__p`, although both tools sanitize to `mcp__srv_a__p__q`.
+- Read from pi's source (`createMcpToolName` in its MCP extension), not measured: the registered name is `mcp__<server>__<tool>` sanitized as above. When that is longer than 64 characters, or already taken by a different MCP tool, pi cuts it and appends `_` plus the first 8 hex characters of SHA-256 over `<server>\0<tool>` (the original names). The suffix itself is deterministic. Measured: a 70-character tool name, and both `a-b` and `a_b` on one server, got suffixes that matched SHA-256 computed independently. Within one server every tool in a collision gets the suffix, not only the later one (`registerTools` in pi's MCP extension).
+- Measured: a collision across servers suffixes only one side. With `srv-a`/`p__q` and `srv_a__p`/`q`, the `srv_a__p` tool kept `mcp__srv_a__p__q` and the `srv-a` tool got `mcp__srv_a__p__q_13e746a6`. Which side keeps the plain name depends on which server registered first (read from source: `toolOwners` is filled as servers connect), so it cannot be computed from the names alone.
 - pi core ships `examples/extensions/permission-gate.ts`, the same pattern for a few bash commands, with nothing configurable.
 - A downstream brand package already has a `tool_call` guard with an ask dialog, fail-closed behaviour without a UI, a 15-minute approval window and a status command. Its rules are hardcoded and another package cannot add one. That is the shape this proposal would make shareable.
 
-Not measured: behaviour in subagent children (see below), and behaviour of any pi version other than the one in the session.
+Not measured: TUI mode, background (async) subagent children, MCP tools inside a child (none registered in the measured child), the order in which several extensions' `tool_call` handlers run, and any pi version other than 1.1.0.
 
 ## Care needed
 
 A missing guard must not mean ungated. This is the reason for the registration choice. A rule pack that is installed without its host must either block what it covers or carry its own handler, and it must say which when it registers. There is no default that is safe in both directions.
 
-Subagent children. Whether a child is covered depends on how the host loads extensions into children, which is not something a rule can see. The layer either carries that coupling (and so knows how the host does it) or the host supplies it. Either way the status command must say plainly which, and whether children are covered right now. A guard that looks covered in children but is not is worse than none, because the user stops watching. A child with no UI blocks every `ask` call, which is safe but will stall a child that needs a write, and the reason should say so.
+Subagent children. Whether a child is covered depends on how the host loads extensions into children, which is not something a rule can see. In the measured pi-subagents foreground child, the probe extension loaded only because the agent listed it in `extensions`; pi-subagents' docs say foreground children never load the parent's ambient extensions. The layer either carries that coupling (and so knows how the host does it) or the host supplies it. Either way the status command must say plainly which, and whether children are covered right now. A guard that looks covered in children but is not is worse than none, because the user stops watching. A child with no UI blocks every `ask` call, which is safe but will stall a child that needs a write, and the reason should say so.
 
 Dialog text is built from untrusted arguments. Strip control characters (including escape sequences) before showing them. When a value is clipped, show its full length. A preview must never hide what is actually sent: if the preview cannot show all of an argument, the dialog says so, or the call is blocked.
 
-Match on the name pi registers. Do not match on the server's own tool name or on a display label. Matching is exact and case-sensitive on the registered name, and `*` patterns are the only wildcard. A rule should be able to name a server and a tool by their original names, and the layer computes the registered name the same way pi does: sanitize, then add the hash suffix when the name is too long or taken. Since the suffix is deterministic, the rule author never guesses it. Two cases still need care. Whether a name was taken depends on the other tools loaded, so the layer checks its computed names against `pi.getAllTools()` at `session_start` and reports a rule that matches no live tool. And a `*` pattern written against the unsuffixed form can miss a suffixed name, so patterns should be matched against both the registered name and the computed unsuffixed form. Do not resolve names through `namespace`, which sanitizes differently. The algorithm is pi's, not a public API, so the layer pins it with tests against the pi version it supports.
+Match on the name pi registers. Do not match on the server's own tool name or on a display label. Matching is exact and case-sensitive on the registered name, and `*` patterns are the only wildcard. A rule should be able to name a server and a tool by their original names. The layer computes both candidate names the way pi does: the sanitized name, and the sanitized name with the hash suffix. Length alone decides some cases, but a collision (within a server, or across servers) decides others, and which side of a cross-server collision keeps the plain name depends on connect order. So a computed name is a candidate, not an answer:
+
+- A rule by original names matches a call whose registered name equals either candidate. Matching the suffixed form too means a write cannot escape a rule by colliding.
+- If the plain candidate is held by a different server's tool, the rule must not match it. The owning server is known from the tool's `namespace` in `pi.getAllTools()`, which is unique per server because pi rejects servers whose namespaces clash (read from source: `config.js`). This uses `namespace` only to identify the server, never to build a tool name. `ToolInfo` carries no label or original tool name. When the layer cannot tell which tool owns a plain name, it fails closed: it applies the stricter verdict of the rules involved.
+- MCP tools are not listed yet at `session_start`. The check that reports rules matching no live tool runs on `mcp_servers_change` and again when a call arrives, and the status command shows rules still unmatched.
+- A `*` pattern written against the unsuffixed form can miss a suffixed name, so patterns are matched against both the registered name and the registered name with any `_<8 hex>` suffix removed. Do not build tool names from `namespace`, which sanitizes differently. The algorithm is pi's, not a public API, so the layer pins it with tests against the pi version it supports.
 
 Plan mode's bash allowlist is a different problem. It parses shell (`extensions/chassis/readonly-command.ts`) and decides whether a command line can write. That stays in pi-chassis and out of the rules layer. Phase 2 replaces the need for it where an OS sandbox is available, and it remains the fallback where one is not.
 
@@ -120,13 +132,16 @@ The Plan-mode item in pi-chassis's `TODO.md` already says the sandbox should "ga
 A list for the implementer:
 
 - A call with no UI is blocked, with the registration choice both ways (`block` and own handler).
+- In RPC mode with no client, an `ask` call blocks when the dialog times out, and the reason says nobody answered.
 - A rule pack that skips the registration choice throws at registration.
 - A nested codemode call is gated.
 - A nested call from a trusted parent tool is not.
 - A tool no rule names asks when it has no `readOnlyHint`, and passes when it has `readOnlyHint` true.
 - An unannotated server's read tools pass only when a rule says so.
 - A write cannot get past by differing in case, through a `*` pattern, or through a hash-suffixed tool (one with a name over 64 characters and one whose sanitized name collides, such as `a-b` and `a_b` on one server).
-- The computed registered name matches pi's for plain, long and colliding names, and a rule that matches no live tool is reported at `session_start`.
+- The computed registered name matches pi's for plain, long and colliding names, including both tools of a same-server collision and the suffixed side of a cross-server collision.
+- A rule written for one server never matches the other server's tool in a cross-server collision, whichever side kept the plain name.
+- A rule that matches no live tool is reported once MCP servers have connected, not at `session_start`.
 - A declined dialog blocks and tells the model not to retry.
 - A preview strips control characters and shows the full length of a clipped value.
 - The status command reports child coverage as it actually is.
