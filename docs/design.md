@@ -1,6 +1,6 @@
 # pi-governor design
 
-Status: phase 1 steps 1 to 3 are implemented (registry and client, the guard host, the approval dialog); the status command and phase 2 are not. pi-governor is a guard layer for pi tool calls, built in two phases: rules for every tool call first, then an optional OS sandbox for bash (see "Phase 2: a bash sandbox"). It started as a proposal in [pi-chassis](https://github.com/one24-ai/pi-chassis), whose Plan mode is its first planned registrant. File paths under `extensions/chassis/` below refer to the pi-chassis repo.
+Status: phase 1 is implemented (registry and client, the guard host, the approval dialog, the status command); phase 2 is not. pi-governor is a guard layer for pi tool calls, built in two phases: rules for every tool call first, then an optional OS sandbox for bash (see "Phase 2: a bash sandbox"). It started as a proposal in [pi-chassis](https://github.com/one24-ai/pi-chassis), whose Plan mode is its first planned registrant. File paths under `extensions/chassis/` below refer to the pi-chassis repo.
 
 ## Problem
 
@@ -83,7 +83,7 @@ A rule pack that skips the choice fails loudly at registration (it throws), rath
 
 ### Status command
 
-A command (for example `/governor`) lists the live rules, the live approvals and whether subagent children are covered, and says plainly which.
+`/governor` lists the live rule packs and their rules, the source defaults and the state of both config files (a broken file is named as broken), the rules that match no live tool, the live approvals with their time left, and whether this session has a guard handler of its own. It says plainly that subagent children are not known to be covered and that the order of `tool_call` handlers across extensions has not been measured, instead of claiming either. A rule that matches no live tool is explained differently before and after any MCP tool is listed, because MCP servers connect in the background.
 
 ## Findings
 

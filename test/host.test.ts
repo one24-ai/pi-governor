@@ -39,10 +39,15 @@ const BASH: LiveTool = { name: "bash", sourceInfo: src("builtin:bash") };
 
 function fakePi(tools: LiveTool[] = [WRITE, READ, BASH]) {
 	const handlers: Record<string, Array<(e: any, c: any) => any>> = {};
+	const commands: Record<string, { handler: (args: string, ctx: any) => Promise<void> }> = {};
 	return {
 		handlers,
+		commands,
 		on(event: string, handler: (e: any, c: any) => any) {
 			(handlers[event] ??= []).push(handler);
+		},
+		registerCommand(name: string, options: { handler: (args: string, ctx: any) => Promise<void> }) {
+			commands[name] = options;
 		},
 		getAllTools: () => tools,
 	};
@@ -75,6 +80,33 @@ test("loading publishes the store and installs the handlers", () => {
 	for (const event of ["session_start", "tool_call", "tool_execution_start", "tool_execution_end", "session_shutdown"]) {
 		assert.equal(pi.handlers[event]?.length, 1, event);
 	}
+	assert.deepEqual(Object.keys(pi.commands), ["governor"]);
+});
+
+test("/governor reports the live state through the UI", async () => {
+	writeFileSync(join(agentDir, "governor.json"), "{ nope");
+	const pi = fakePi();
+	registerRules(asPi(pi) as any, { id: "p", rules: [{ tool: { server: "t", tool: "create_issue" }, verdict: "ask" }], whenNoHost: "block" });
+	governorHost(asPi(pi));
+	await emit(pi, "session_start", {});
+	const notes: Array<[string, string | undefined]> = [];
+	await pi.commands.governor!.handler("", { ...ctx(), ui: { notify: (m: string, t?: string) => notes.push([m, t]) } });
+	assert.equal(notes.length, 1);
+	assert.match(notes[0]![0], /This session has a governor handler/);
+	assert.match(notes[0]![0], /IS BROKEN/);
+	assert.match(notes[0]![0], /p: 1 rule/);
+	assert.match(notes[0]![0], /Subagent children: not known/);
+});
+
+test("/governor still answers when building the status fails", async () => {
+	const pi = fakePi();
+	governorHost(asPi(pi));
+	(pi as any).getAllTools = () => {
+		throw new Error("tool list unavailable");
+	};
+	const notes: string[] = [];
+	await pi.commands.governor!.handler("", { ...ctx(), ui: { notify: (m: string) => notes.push(m) } });
+	assert.match(notes[0]!, /could not build its status: tool list unavailable/);
 });
 
 test("session_start marks the session covered; shutdown ends the store", async () => {

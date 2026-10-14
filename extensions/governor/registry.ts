@@ -140,6 +140,11 @@ export function liveRegistrations(): readonly Registration[] {
 	return registry.entries.map((e) => e.registration);
 }
 
+/** Registrations waiting for a host that speaks their API version. */
+export function pendingCount(): number {
+	return pendingList().length;
+}
+
 /** How many hosts are live in this process. */
 export function hostCount(): number {
 	const registry = globals[REGISTRY] as Registry | undefined;

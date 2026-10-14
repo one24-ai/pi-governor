@@ -20,3 +20,5 @@ All notable changes to pi-governor are listed here. The format follows [Keep a C
 - A rule's preview is checked against the arguments more strictly: a short value (`true`, `a`, `5`) counts as shown only if the preview also names its argument, so an argument is never taken for shown just because its letters occur in the text.
 - A call id that two different tools used names neither as a `trustedParents` parent, and a registration a live store refused stays queued for a later host.
 - If `governor.json` cannot be located or read when a session starts, every source asks instead of keeping the shipped defaults.
+- `/governor`: lists the live rule packs and rules, the source defaults and the state of both config files, rules that match no live tool, live approvals with their time left, and whether this session has a governor handler. It states that subagent children are not known to be covered and that handler order across extensions is not measured.
+- README: what the package does, install, settings, how a package registers rules, and what it does not do.

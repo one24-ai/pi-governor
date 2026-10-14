@@ -11,8 +11,9 @@
 import { type ExtensionAPI, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { type ConfigSource, globalConfigPath, projectConfigPath, readConfig } from "./config.ts";
 import { Guard } from "./guard.ts";
-import { livePacks, markCovered, publishHost } from "./registry.ts";
+import { hostCount, isCovered, livePacks, markCovered, pendingCount, publishHost } from "./registry.ts";
 import { resolveDefaults } from "./rules.ts";
+import { buildStatus } from "./status.ts";
 
 let hostCounter = 0;
 
@@ -53,5 +54,27 @@ export default function governorHost(pi: ExtensionAPI): void {
 			ctx,
 		),
 	);
+	pi.registerCommand("governor", {
+		description: "Show pi-governor's live rules, defaults, approvals and what it does not cover",
+		handler: async (_args, ctx) => {
+			let text: string;
+			try {
+				text = buildStatus({
+					hostCount: hostCount(),
+					covered: isCovered(ctx.sessionManager),
+					pending: pendingCount(),
+					packs: livePacks(),
+					tools: pi.getAllTools(),
+					config,
+					defaults: resolveDefaults(config?.global.parsed, config?.project.parsed),
+					approvals: guard.approvals(),
+					now: Date.now(),
+				});
+			} catch (error) {
+				text = `pi-governor could not build its status: ${error instanceof Error ? error.message : String(error)}`;
+			}
+			ctx.ui.notify(text, "info");
+		},
+	});
 	pi.on("session_shutdown", () => unpublish());
 }
