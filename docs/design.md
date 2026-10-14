@@ -103,11 +103,20 @@ Re-verified on 2026-10-09 against pi 1.1.0 (`@earendil-works/pi-coding-agent`), 
 - pi core ships `examples/extensions/permission-gate.ts`, the same pattern for a few bash commands, with nothing configurable.
 - A downstream brand package already has a `tool_call` guard with an ask dialog, fail-closed behaviour without a UI, a 15-minute approval window and a status command. Its rules are hardcoded and another package cannot add one. That is the shape this proposal would make shareable.
 
-Not measured: TUI mode, background (async) subagent children, MCP tools inside a child (none registered in the measured child), the order in which several extensions' `tool_call` handlers run, and any pi version other than 1.1.0.
+- Measured with two probe extensions (a mutator that sets `event.input.text` in place, and a rule that is `never` for `text: "danger"`), on pi 1.1.0:
+  - Handlers run in load order, and a block stops the rest. With the guard loaded first and the mutator after, a call with `text: "safe"` passed the guard and the tool received `text: "danger"`, for a nested codemode call and for a direct top-level call. `tool_result` shows the changed input, so it is visible afterwards but not preventable there.
+  - With the mutator loaded first, the guard saw `danger` and blocked it. A handler loaded before the guard is safe; one loaded after is not.
+  - The guard cannot re-check later: in the agent loop (`prepareToolCall`) the `tool_call` handlers are the only hook before execution, and `tool_execution_start` fires before the arguments are prepared, so it carries the model's original arguments.
+  - Deep-freezing `event.input` in a handler that runs first made a later in-place write throw (`Cannot assign to read only property`), which pi turned into a failed call that did not run. So freezing turns the silent change into a blocked call, but it also breaks any extension that patches arguments on purpose, and it was not checked whether a built-in tool writes to its own arguments.
+  - Not checked: how installed packages order against `-e` paths beyond what pi's `mergePaths` shows (CLI paths first, then settings), and whether `event.input` can be replaced rather than mutated (the event wraps the validated arguments, so reassigning looks ineffective, not verified).
+
+Not measured: background (async) subagent children, MCP tools inside a child (none registered in the measured child), and any pi version other than 1.1.0. TUI mode was run by hand for the status command and the dialog (arrow-key selection of No, the timeout expiring, and approval windows were not exercised).
 
 ## Care needed
 
 A missing guard must not mean ungated. This is the reason for the registration choice. A rule pack that is installed without its host must either block what it covers or carry its own handler, and it must say which when it registers. There is no default that is safe in both directions.
+
+Argument changes after the check. A `tool_call` handler loaded after the guard can change a call's arguments in place, and the tool receives the change (see Findings). A rule that narrows by argument value, and an approval that showed specific values, are only as good as the arguments that are sent. Open: whether the guard should freeze `event.input` for calls it let through, trading a blocked call for any extension that patches arguments on purpose.
 
 Subagent children. Whether a child is covered depends on how the host loads extensions into children, which is not something a rule can see. In the measured pi-subagents foreground child, the probe extension loaded only because the agent listed it in `extensions`; pi-subagents' docs say foreground children never load the parent's ambient extensions. The layer either carries that coupling (and so knows how the host does it) or the host supplies it. Either way the status command must say plainly which, and whether children are covered right now. A guard that looks covered in children but is not is worse than none, because the user stops watching. A child with no UI blocks every `ask` call, which is safe but will stall a child that needs a write, and the reason should say so.
 

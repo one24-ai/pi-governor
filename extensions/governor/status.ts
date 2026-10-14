@@ -104,7 +104,7 @@ export function buildStatus(input: StatusInput): string {
 
 	lines.push("", "Not covered, or not known");
 	lines.push("  Subagent children: not known. A child is covered only if its host loads this extension into it, and this package cannot see how that host does it. Treat children as not covered unless you set that up. A child with no UI blocks every ask call.");
-	lines.push("  Handler order: not measured. pi runs tool_call handlers in load order, and a handler that runs after this one can still change a call's arguments in place after it was approved.");
+	lines.push("  Handler order: measured on pi 1.1.0. pi runs tool_call handlers in load order. A handler loaded AFTER this one can change a call's arguments in place once they were checked, and the tool then receives the changed arguments; a handler loaded before it is safe, because this extension sees its changes. This package cannot control load order.");
 	lines.push("  Not gated: pi's own process, other extensions' code, and MCP servers, which run with your permissions. For real isolation, run pi in a container.");
 
 	return lines.join("\n");

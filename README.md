@@ -65,7 +65,7 @@ A rule names a tool by its registered name (exact and case-sensitive, `*` is the
 
 - It cannot limit what an allowed bash command does once it runs (phase 2).
 - Subagent children are covered only if the host that launches them loads this extension into them. `/governor` says so rather than guessing. A child has no UI, so every ask call is blocked there.
-- Another extension's `tool_call` handler that runs after this one can still change a call's arguments in place after it was approved. The order of handlers across extensions has not been measured.
+- Another extension's `tool_call` handler that is loaded after this one can change a call's arguments in place after they were checked or approved, and the tool receives the changed arguments (measured on pi 1.1.0, for top-level and codemode calls). One loaded before it is safe: this extension then checks what will actually be sent. Load order is not something this package controls.
 - Tested against pi 1.1.x only. TUI mode and background subagent children have not been exercised.
 
 See [docs/design.md](docs/design.md) for the design and the measurements behind it.

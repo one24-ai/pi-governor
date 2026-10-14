@@ -29,7 +29,8 @@ test("the status never claims subagent children or handler order are covered", (
 	const text = buildStatus(base());
 	assert.match(text, /Subagent children: not known/);
 	assert.match(text, /Treat children as not covered/);
-	assert.match(text, /Handler order: not measured/);
+	assert.match(text, /Handler order: measured on pi 1\.1\.0/);
+	assert.match(text, /loaded AFTER this one can change a call's arguments/);
 	assert.match(text, /Not gated: pi's own process/);
 });
 

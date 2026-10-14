@@ -22,3 +22,4 @@ All notable changes to pi-governor are listed here. The format follows [Keep a C
 - If `governor.json` cannot be located or read when a session starts, every source asks instead of keeping the shipped defaults.
 - `/governor`: lists the live rule packs and rules, the source defaults and the state of both config files, rules that match no live tool, live approvals with their time left, and whether this session has a governor handler. It states that subagent children are not known to be covered and that handler order across extensions is not measured.
 - README: what the package does, install, settings, how a package registers rules, and what it does not do.
+- Handler order is measured and documented (README, design, and `/governor`): a `tool_call` handler loaded after the guard can change a call's arguments in place after they were checked; one loaded before it cannot. This is a known limit, not a fix.
