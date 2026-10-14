@@ -45,7 +45,7 @@ Annotations are declared by the server and pi does not verify them. They are a d
 
 ### Config
 
-The source defaults are read from `~/.pi/agent/containment.json` (global) and `.pi/containment.json` (project). pi reads project files only after the user trusts the project, but trust does not make their content safe, so the project file may only tighten: for each source the stricter of the two values applies, in the order `allow` < `hints` < `ask` < `never`. A config file that cannot be read or parsed is reported by the status command, and every source is raised to at least `ask` until it is fixed (a source already at `never` stays `never`).
+The source defaults are read from `~/.pi/agent/governor.json` (global) and `.pi/governor.json` (project). pi reads project files only after the user trusts the project, but trust does not make their content safe, so the project file may only tighten: for each source the stricter of the two values applies, in the order `allow` < `hints` < `ask` < `never`. A config file that cannot be read or parsed is reported by the status command, and every source is raised to at least `ask` until it is fixed (a source already at `never` stays `never`).
 
 ### One dialog, one fail-closed path
 

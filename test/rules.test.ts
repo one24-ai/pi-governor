@@ -4,7 +4,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { computeMcpToolNames } from "../extensions/containment/names.ts";
+import { computeMcpToolNames } from "../extensions/governor/names.ts";
 import {
 	BUILTIN_TOOLS,
 	classify,
@@ -17,7 +17,7 @@ import {
 	ruleNamesTool,
 	SHIPPED_DEFAULTS,
 	validateRule,
-} from "../extensions/containment/rules.ts";
+} from "../extensions/governor/rules.ts";
 
 const src = (path: string) => ({ path, source: "x", scope: "user", origin: "top-level" }) as LiveTool["sourceInfo"];
 const builtin = (name: string): LiveTool => ({ name, sourceInfo: src(`builtin:${name}`) });

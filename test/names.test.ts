@@ -8,7 +8,7 @@ import { test } from "node:test";
 // pi's implementation, not a public export: imported by path so the test fails if it moves.
 // @ts-ignore no declarations for this deep path
 import { createMcpToolName } from "../node_modules/@earendil-works/pi-coding-agent/dist/extensions/mcp/tools.js";
-import { computeMcpToolNames, stripHashSuffix, suffixedMcpToolName } from "../extensions/containment/names.ts";
+import { computeMcpToolNames, stripHashSuffix, suffixedMcpToolName } from "../extensions/governor/names.ts";
 
 const cases: Array<[string, string]> = [
 	["srv-a", "read_thing"],

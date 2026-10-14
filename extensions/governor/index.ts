@@ -1,5 +1,5 @@
 /**
- * pi-containment's public entry point. Rules, the registry and the guard host land here as they
+ * pi-governor's public entry point. Rules, the registry and the guard host land here as they
  * are built; see docs/design.md.
  */
 

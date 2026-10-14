@@ -77,7 +77,7 @@ export type ParsedConfig =
 	| { ok: false; error: string };
 
 /**
- * Parse a containment.json. Only `{ "defaults": { "<source>": "<value>" } }` is accepted. Unknown
+ * Parse a governor.json. Only `{ "defaults": { "<source>": "<value>" } }` is accepted. Unknown
  * keys and values are errors, so a typo cannot quietly leave a source at a looser default.
  */
 export function parseConfig(text: string): ParsedConfig {

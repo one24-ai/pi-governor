@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Copied from pi-halo (MIT, same author).
+ * Copied from pi-chassis (MIT, same author).
  *
  * Link the pi packages of the installed pi into node_modules, so tests and the type checker
  * resolve @earendil-works/* without downloading them. pi supplies these to extensions at runtime;
