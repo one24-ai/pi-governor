@@ -1,12 +1,12 @@
-# pi-containment design
+# pi-governor design
 
-Status: design, not yet implemented. pi-containment is a guard layer for pi tool calls, built in two phases: rules for every tool call first, then an optional OS sandbox for bash (see "Phase 2: a bash sandbox"). It started as a proposal in [pi-halo](https://github.com/one24-ai/pi-halo), whose Plan mode is its first planned registrant. File paths under `extensions/halo/` below refer to the pi-halo repo.
+Status: design, not yet implemented. pi-governor is a guard layer for pi tool calls, built in two phases: rules for every tool call first, then an optional OS sandbox for bash (see "Phase 2: a bash sandbox"). It started as a proposal in [pi-chassis](https://github.com/one24-ai/pi-chassis), whose Plan mode is its first planned registrant. File paths under `extensions/chassis/` below refer to the pi-chassis repo.
 
 ## Problem
 
 pi does not ask before a tool call (its own `docs/security.md` says so) and has no permission settings. Its only controls are `--tools` and `--exclude-tools`, which switch a tool on or off for the whole session.
 
-pi-halo's Plan mode does not fill the gap. The pi-halo README's Build / Plan bullet says it is a guardrail, not a sandbox, and that tools from other extensions (MCP and custom tools) are not restricted. In `extensions/halo/modes.ts`, the `tool_call` handler blocks `edit`, `write` and unsafe `bash` by name and returns for everything else.
+pi-chassis's Plan mode does not fill the gap. The pi-chassis README's Build / Plan bullet says it is a guardrail, not a sandbox, and that tools from other extensions (MCP and custom tools) are not restricted. In `extensions/chassis/modes.ts`, the `tool_call` handler blocks `edit`, `write` and unsafe `bash` by name and returns for everything else.
 
 So the write tools of an MCP server are callable by the model with no prompt. Take an issue-tracker MCP server whose tools add a comment, transition an issue, create an issue, edit fields, log work or link issues, or a chat MCP server that can send messages. Anything the model reads (a chat message, a ticket body, a log line, command output) can steer it into calling one of those. Prompt injection is the realistic path, not a corner case.
 
@@ -48,9 +48,9 @@ An `ask` rule applies to calls that a codemode script or another tool makes. A r
 
 ### Registration and the missing-host case
 
-Packages register with the guard the way pi-halo's widget client registers with pi-halo (`extensions/halo/client.ts` in pi-halo): through a `Symbol.for` registry on `globalThis`. The widget client looks for the `pi-halo/registry` key, checks `apiVersion`, queues the registration under `pi-halo/pending` when the host has not loaded yet, and when the host never appears falls back at `session_start`. `extensions/halo/api.ts` is the host side: it sets `apiVersion` on the registry and takes over the queued registrations when it loads. A guard client would use the same shape, so load order does not matter.
+Packages register with the guard the way pi-chassis's widget client registers with pi-chassis (`extensions/chassis/client.ts` in pi-chassis): through a `Symbol.for` registry on `globalThis`. The widget client looks for the `pi-halo/registry` key, checks `apiVersion`, queues the registration under `pi-halo/pending` when the host has not loaded yet, and when the host never appears falls back at `session_start`. `extensions/chassis/api.ts` is the host side: it sets `apiVersion` on the registry and takes over the queued registrations when it loads. A guard client would use the same shape, so load order does not matter.
 
-The fallback is where the two differ. The widget client's fallback with no halo is a status line (`ctx.ui.setStatus`), which is harmless. The same kind of fallback for a guard would let writes through with nobody asking.
+The fallback is where the two differ. The widget client's fallback with no pi-chassis is a status line (`ctx.ui.setStatus`), which is harmless. The same kind of fallback for a guard would let writes through with nobody asking.
 
 So the registering package must choose in the registration call, with no default:
 
@@ -61,7 +61,7 @@ A rule pack that skips the choice fails loudly at registration (it throws), rath
 
 ### Status command
 
-A command (for example `/containment`) lists the live rules, the live approvals and whether subagent children are covered, and says plainly which.
+A command (for example `/governor`) lists the live rules, the live approvals and whether subagent children are covered, and says plainly which.
 
 ## Findings
 
@@ -88,7 +88,7 @@ Dialog text is built from untrusted arguments. Strip control characters (includi
 
 Match on the name pi registers. Do not match on the server's own tool name or on a display label. Matching is exact and case-sensitive on the registered name, and `*` patterns are the only wildcard. A rule should be able to name a server and a tool by their original names, and the layer computes the registered name the same way pi does: sanitize, then add the hash suffix when the name is too long or taken. Since the suffix is deterministic, the rule author never guesses it. Two cases still need care. Whether a name was taken depends on the other tools loaded, so the layer checks its computed names against `pi.getAllTools()` at `session_start` and reports a rule that matches no live tool. And a `*` pattern written against the unsuffixed form can miss a suffixed name, so patterns should be matched against both the registered name and the computed unsuffixed form. Do not resolve names through `namespace`, which sanitizes differently. The algorithm is pi's, not a public API, so the layer pins it with tests against the pi version it supports.
 
-Plan mode's bash allowlist is a different problem. It parses shell (`extensions/halo/readonly-command.ts`) and decides whether a command line can write. That stays in pi-halo and out of the rules layer. Phase 2 replaces the need for it where an OS sandbox is available, and it remains the fallback where one is not.
+Plan mode's bash allowlist is a different problem. It parses shell (`extensions/chassis/readonly-command.ts`) and decides whether a command line can write. That stays in pi-chassis and out of the rules layer. Phase 2 replaces the need for it where an OS sandbox is available, and it remains the fallback where one is not.
 
 ## Phase 2: a bash sandbox
 
@@ -99,21 +99,21 @@ What an extension can confine, read from pi's source and examples (not measured)
 - bash. `createBashTool` accepts `operations` (a `BashOperations` that runs the command) and a `spawnHook` that can rewrite the command, cwd and env before it runs, and the `user_bash` event lets an extension supply the operations for the user's own `!` commands. pi ships `examples/extensions/sandbox/`, which wraps every bash command with `@anthropic-ai/sandbox-runtime` (bubblewrap on Linux, sandbox-exec on macOS) using filesystem and network rules from a JSON config. That example replaces the built-in bash tool; its comments note that rewriting the command in a `tool_call` handler is an alternative that leaves the tool in place.
 - read, write and edit. These run in pi's own process, so no OS sandbox applies. The rules layer can still limit them by path (for example never write outside the working folder, never read a credentials folder). That is a rule, not a boundary.
 
-What no extension can confine: pi's own process, other extensions' code, and MCP servers, which are separate processes with their own access. pi's `docs/security.md` places the lack of a built-in sandbox outside its security boundary, and `docs/containerization.md` describes running all of pi in a container or managed sandbox for real isolation. pi-containment's README says this in its first lines: it confines bash and gates tool calls, and full isolation means running pi in a container.
+What no extension can confine: pi's own process, other extensions' code, and MCP servers, which are separate processes with their own access. pi's `docs/security.md` places the lack of a built-in sandbox outside its security boundary, and `docs/containerization.md` describes running all of pi in a container or managed sandbox for real isolation. pi-governor's README says this in its first lines: it confines bash and gates tool calls, and full isolation means running pi in a container.
 
 Shape:
 
 - A sandbox profile is filesystem and network rules for bash, set in config (global and per project) and selectable by registrants. Plan mode asks for a read-only profile: the working folder readable, nothing writable except a scratch folder.
 - Where the platform has no supported sandbox (Windows, or Linux without bubblewrap), the package falls back to the rules layer alone, and the status command says so. It never reports bash as confined when it is not.
-- If bash is wrapped by rewriting the command in a `tool_call` handler, it must run after the rules decide and must not be undone by another handler. If the built-in tool is replaced instead, the tool's renderer and other packages' renderers for `bash` must keep working; check this against pi-halo's tool rows.
+- If bash is wrapped by rewriting the command in a `tool_call` handler, it must run after the rules decide and must not be undone by another handler. If the built-in tool is replaced instead, the tool's renderer and other packages' renderers for `bash` must keep working; check this against pi-chassis's tool rows.
 
 Costs: a system dependency (bubblewrap) and a third-party npm dependency to pin and review, platform work and tests for each operating system, and network filtering through a proxy, which is weaker than the filesystem rules. These are why the rules layer ships first.
 
 Tests for phase 2: a write outside the allowed paths fails inside the sandbox; a read-only profile blocks writes to the working folder; with no sandbox available the status command reports bash as not confined and Plan mode falls back to the command allowlist; the user's `!` commands are confined when the config says so.
 
-## Relation to pi-halo's Plan mode
+## Relation to pi-chassis's Plan mode
 
-The Plan-mode item in pi-halo's `TODO.md` already says the sandbox should "gate every write-capable tool including MCP and extension tools (an allow-list of read-only tools rather than blocking edit/write by name)". That MCP and extension-tool half is phase 1 of this feature, and the read-only bash and the platform fallback in that item are phase 2. Plan mode becomes one more registrant: while the mode is Plan it asks the layer to treat everything without an `allow` verdict as `never`, and, where phase 2 is available, to run bash under a read-only profile.
+The Plan-mode item in pi-chassis's `TODO.md` already says the sandbox should "gate every write-capable tool including MCP and extension tools (an allow-list of read-only tools rather than blocking edit/write by name)". That MCP and extension-tool half is phase 1 of this feature, and the read-only bash and the platform fallback in that item are phase 2. Plan mode becomes one more registrant: while the mode is Plan it asks the layer to treat everything without an `allow` verdict as `never`, and, where phase 2 is available, to run bash under a read-only profile.
 
 ## Tests that matter
 
@@ -134,12 +134,12 @@ A list for the implementer:
 ## Questions
 
 1. Where does it live? (decided)
-   - Inside pi-halo. Simplest to ship and shares the registry code. But pi-halo's package manifest loads the sidebar, header, footer and editor together, and its README says it does not combine with another package that replaces those. Someone who wants only the guard would have to take the TUI.
+   - Inside pi-chassis. Simplest to ship and shares the registry code. But pi-chassis's package manifest loads the sidebar, header, footer and editor together, and its README says it does not combine with another package that replaces those. Someone who wants only the guard would have to take the TUI.
    - A separate entry in the `pi.extensions` list of the same package, which users can switch off on its own. This still installs the TUI package.
-   - A subpath export such as `pi-halo/guard` for the client side, with the host as a separate extension entry.
-   - Its own package, with pi-halo as one registrant (for Plan mode).
+   - A subpath export such as `pi-chassis/guard` for the client side, with the host as a separate extension entry.
+   - Its own package, with pi-chassis as one registrant (for Plan mode).
 
-   Decided: its own package, `pi-containment`, with pi-halo depending on its client for Plan mode. The guard is a safety control and should not need a TUI to run.
+   Decided: its own package, `pi-governor`, with pi-chassis depending on its client for Plan mode. The guard is a safety control and should not need a TUI to run.
 
 2. What happens when no guard host is loaded?
    - The registering package chooses between blocking and its own fallback, in the registration call (the proposal above).

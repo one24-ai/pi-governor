@@ -1,4 +1,4 @@
-# pi-containment: notes for agents working in this repo
+# pi-governor: notes for agents working in this repo
 
 - This is a general-purpose package. Nothing specific to one company, its hosts, services or tools goes in code, docs, tests or examples.
 - Use pnpm, never npm or yarn.
