@@ -1,7 +1,7 @@
 /**
  * The names pi registers for MCP tools.
  *
- * This copies pi 1.1's `createMcpToolName` (dist/extensions/mcp/tools.js), which is not a public
+ * This copies pi's `createMcpToolName` (dist/extensions/mcp/tools.js, the same in 1.1 and 1.2), which is not a public
  * API. test/names.test.ts checks it against pi's own function, so a pi update that changes the
  * algorithm fails the tests instead of silently letting a write tool slip past a rule.
  *

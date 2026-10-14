@@ -39,7 +39,7 @@ const VERDICT_RANK: Record<Verdict, number> = { allow: 0, ask: 1, never: 2 };
 
 export const SOURCES: readonly ConfigurableSource[] = ["mcp", "builtin", "extension"];
 
-/** pi 1.1's built-in tools (dist/core/tools/index.js). */
+/** pi's built-in tools (dist/core/tools/index.js, the same in 1.1 and 1.2). */
 export const BUILTIN_TOOLS: ReadonlySet<string> = new Set(["read", "bash", "powershell", "edit", "write", "grep", "find", "ls"]);
 export const SHIPPED_DEFAULTS: Readonly<Record<ConfigurableSource, SourceDefault>> = Object.freeze({
 	mcp: "hints",

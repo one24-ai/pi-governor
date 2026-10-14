@@ -6,8 +6,8 @@ All notable changes to pi-governor are listed here. The format follows [Keep a C
 
 ### Added
 
-- Package scaffold: TypeScript sources under `extensions/`, `node --test` tests, and a peer dependency on `@earendil-works/pi-coding-agent` `>=1.1.0 <1.2.0`.
-- `computeMcpToolNames(server, tool)`: the plain and hash-suffixed names pi 1.1 can register for an MCP tool, for matching rules against live tool names.
+- Package scaffold: TypeScript sources under `extensions/`, `node --test` tests, and a peer dependency on `@earendil-works/pi-coding-agent` `>=1.2.0 <1.3.0` (measured on pi 1.1.0 and again on 1.2.0; 1.1.x is no longer in the range because it has not been re-tested with the host).
+- `computeMcpToolNames(server, tool)`: the plain and hash-suffixed names pi 1.1 and 1.2 can register for an MCP tool, for matching rules against live tool names.
 - Rules and verdicts (`decide`, `validateRule`, `ruleNamesTool`): a rule names a tool by registered name, `*` pattern or original server and tool names, can narrow by argument values, and gives `allow`, `ask` or `never`; the strictest matching rule wins.
 - Source defaults for tools no rule names: `mcp` (shipped `hints`: pass only a declared `readOnlyHint`), `builtin` and `extension` (shipped `allow`), and `unknown` (always `ask`). Set in `~/.pi/agent/governor.json`; `.pi/governor.json` can only tighten, and an invalid file makes every source ask.
 - `registerRules(pi, { id, rules, whenNoHost })` in `pi-governor/client`: a package registers its rules through a `Symbol.for("pi-governor/registry")` registry on `globalThis`, in any load order. `whenNoHost` is required, with no default: `"block"` blocks the calls the package's ask and never rules cover until a host takes the rules, or a handler function decides them; leaving it out throws at registration. Rules are validated and frozen when registered, one package cannot replace another's rules even with the same id, and a session without a host handler of its own (a subagent child that loads no host) still gets the `whenNoHost` behaviour.

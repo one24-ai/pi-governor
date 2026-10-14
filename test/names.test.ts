@@ -1,6 +1,6 @@
 /**
  * The MCP name computation matches the installed pi's own function, for the cases measured live
- * on pi 1.1.0 (see docs/design.md, Findings).
+ * on pi 1.1.0 and re-checked on 1.2.0 (see docs/design.md, Findings).
  */
 
 import assert from "node:assert/strict";
@@ -36,7 +36,9 @@ test("suffixed names match pi when the plain name is taken", () => {
 	}
 });
 
-test("names measured on pi 1.1.0", () => {
+test("names measured on pi 1.1.0 and 1.2.0", () => {
+	// 1.2.0: srv_a__p/q lost the plain name to srv-a/p__q and got this suffix.
+	assert.equal(suffixedMcpToolName("srv_a__p", "q"), "mcp__srv_a__p__q_008fe00f");
 	assert.equal(suffixedMcpToolName("srv-a", "a-b"), "mcp__srv_a__a_b_5cedebc2");
 	assert.equal(suffixedMcpToolName("srv-a", "a_b"), "mcp__srv_a__a_b_795d8c8f");
 	assert.equal(suffixedMcpToolName("srv-a", "p__q"), "mcp__srv_a__p__q_13e746a6");

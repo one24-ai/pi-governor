@@ -4,7 +4,7 @@
  *
  * Install this handler first in load order where possible: pi runs `tool_call` handlers one
  * after the other in load order, and a handler that runs later can still change `event.input` in
- * place after the guard has decided (read from pi 1.1.0's source, not measured; see
+ * place after the guard has decided (measured on pi 1.1.0 and 1.2.0; see
  * docs/design.md, "Care needed").
  */
 
