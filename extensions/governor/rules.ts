@@ -118,6 +118,26 @@ export function resolveDefaults(global?: ParsedConfig, project?: ParsedConfig): 
 
 // ---- rules -----------------------------------------------------------------------------------
 
+/**
+ * A frozen copy of a rule, validated. Every property is read once, so a rule built with getters
+ * cannot pass validation and then change; later edits to the original do not reach the copy. The
+ * guard and the registering package's fallback both use the copy.
+ */
+export function snapshotRule(rule: Rule): Rule {
+	if (!isRecord(rule)) throw new TypeError("rule must be an object");
+	const { tool, args, verdict, preview, windowMs, trustedParents } = rule;
+	const copy: Record<string, unknown> = {
+		tool: isRecord(tool) ? Object.freeze({ server: tool.server, tool: tool.tool }) : tool,
+		verdict,
+	};
+	if (args !== undefined) copy.args = isRecord(args) ? Object.freeze({ ...args }) : args;
+	if (preview !== undefined) copy.preview = preview;
+	if (windowMs !== undefined) copy.windowMs = windowMs;
+	if (trustedParents !== undefined) copy.trustedParents = Array.isArray(trustedParents) ? Object.freeze([...trustedParents]) : trustedParents;
+	validateRule(copy as unknown as Rule);
+	return Object.freeze(copy) as unknown as Rule;
+}
+
 /** Throws on a rule the layer cannot apply safely. Called at registration. */
 export function validateRule(rule: Rule): void {
 	if (!isRecord(rule)) throw new TypeError("rule must be an object");
@@ -195,6 +215,11 @@ export interface Call {
 	input: unknown;
 }
 
+/** Whether a rule applies to this call: it names the tool and its argument narrowing fits. */
+export function ruleApplies(rule: Rule, call: Call, tool: LiveTool | undefined): boolean {
+	return ruleNamesTool(rule, call.name, tool) && argsMatch(rule, call.input);
+}
+
 export interface Decision {
 	verdict: Verdict;
 	source: ToolSource;
@@ -211,7 +236,7 @@ export interface Decision {
  */
 export function decide(call: Call, tool: LiveTool | undefined, rules: readonly Rule[], defaults: Record<ConfigurableSource, SourceDefault>): Decision {
 	const source = classify(call.name, tool);
-	const matched = rules.filter((rule) => ruleNamesTool(rule, call.name, tool) && argsMatch(rule, call.input));
+	const matched = rules.filter((rule) => ruleApplies(rule, call, tool));
 	if (source === "unknown") {
 		const never = matched.filter((r) => r.verdict === "never");
 		if (never.length) return { verdict: "never", source, rules: never, why: "a rule never allows it" };

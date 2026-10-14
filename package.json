@@ -41,5 +41,21 @@
   "devDependencies": {
     "@types/node": "24.10.1",
     "typescript": "5.9.3"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/governor/index.d.ts",
+      "default": "./dist/governor/index.js"
+    },
+    "./client": {
+      "types": "./dist/governor/client.d.ts",
+      "default": "./dist/governor/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/governor/host.ts"
+    ]
   }
 }

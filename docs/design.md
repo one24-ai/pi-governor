@@ -1,6 +1,6 @@
 # pi-governor design
 
-Status: design, not yet implemented. pi-governor is a guard layer for pi tool calls, built in two phases: rules for every tool call first, then an optional OS sandbox for bash (see "Phase 2: a bash sandbox"). It started as a proposal in [pi-chassis](https://github.com/one24-ai/pi-chassis), whose Plan mode is its first planned registrant. File paths under `extensions/chassis/` below refer to the pi-chassis repo.
+Status: phase 1 steps 1 to 3 are implemented (registry and client, the guard host, the approval dialog); the status command and phase 2 are not. pi-governor is a guard layer for pi tool calls, built in two phases: rules for every tool call first, then an optional OS sandbox for bash (see "Phase 2: a bash sandbox"). It started as a proposal in [pi-chassis](https://github.com/one24-ai/pi-chassis), whose Plan mode is its first planned registrant. File paths under `extensions/chassis/` below refer to the pi-chassis repo.
 
 ## Problem
 
@@ -49,9 +49,9 @@ The source defaults are read from `~/.pi/agent/governor.json` (global) and `.pi/
 
 ### One dialog, one fail-closed path
 
-Every `ask` rule goes through the same dialog and the same failure behaviour. With no UI (print mode, a subagent child) an `ask` call is blocked, and the reason tells the model to ask the user instead.
+Every `ask` rule goes through the same dialog and the same failure behaviour. Dialogs open one at a time, and a call queued behind one does not open its own after the operation was aborted. With no UI (print mode, a subagent child) an `ask` call is blocked, and the reason tells the model to ask the user instead.
 
-`ctx.hasUI` is not enough to detect a missing UI. In RPC mode it is true even when no client is attached, and a dialog then waits for an answer that never comes. So every dialog is opened with a timeout, and a timeout counts as a decline.
+`ctx.hasUI` is not enough to detect a missing UI. In RPC mode it is true even when no client is attached, and a dialog then waits for an answer that never comes. So every dialog is opened with a timeout, and a timeout counts as a decline. The guard also stops waiting a few seconds after that timeout, so a UI that ignores it cannot stall every later ask; that call is blocked as unanswered.
 
 A declined dialog also blocks, and the reason tells the model not to retry the call. A timed-out dialog blocks with a reason that says nobody answered.
 
@@ -65,16 +65,21 @@ An `ask` rule applies to calls that a codemode script or another tool makes. A r
 
 ### Registration and the missing-host case
 
-Packages register with the guard the way pi-chassis's widget client registers with pi-chassis (`extensions/chassis/client.ts` in pi-chassis): through a `Symbol.for` registry on `globalThis`. The widget client looks for the `pi-halo/registry` key, checks `apiVersion`, queues the registration under `pi-halo/pending` when the host has not loaded yet, and when the host never appears falls back at `session_start`. `extensions/chassis/api.ts` is the host side: it sets `apiVersion` on the registry and takes over the queued registrations when it loads. A guard client would use the same shape, so load order does not matter.
+Packages register with the guard the way pi-chassis's widget client registers with pi-chassis (`extensions/chassis/client.ts` in pi-chassis): through a `Symbol.for` registry on `globalThis`. The widget client looks for the `pi-halo/registry` key, checks `apiVersion`, queues the registration under `pi-halo/pending` when the host has not loaded yet, and when the host never appears falls back at `session_start`. `extensions/chassis/api.ts` is the host side: it sets `apiVersion` on the registry and takes over the queued registrations when it loads. The guard uses the same shape under `pi-governor/registry` and `pi-governor/pending`, so load order does not matter. It differs in four ways:
 
-The fallback is where the two differ. The widget client's fallback with no pi-chassis is a status line (`ctx.ui.setStatus`), which is harmless. The same kind of fallback for a guard would let writes through with nobody asking.
+- **The version must match exactly.** A client registers only with a store whose `apiVersion` equals its own. A host that finds a store with another version throws at load. Nothing is assumed to understand an older client.
+- **Several hosts share one store.** A subagent child can run inside its parent's process and load its own copy of the host. Every host reads the same registered rules, and the store ends with the last host, at which point each package is told and its `whenNoHost` choice is back in force.
+- **A host in the process is not a host in the session.** A host marks the sessions it has a `tool_call` handler in (by their session manager). A package's own fallback keeps running in any session the host has not marked, so a child without the host handler is not treated as covered.
+- **Rules belong to the package that registered them.** A package registering again replaces its own earlier rules. Another package using the same id is kept alongside, not substituted: nobody can loosen another package's rules by reusing its name. Rules are validated and frozen when registered, so later edits to the originals, or a getter that answers differently the second time, do not reach the guard.
+
+The fallback is where the guard and a widget differ most. The widget client's fallback with no pi-chassis is a status line (`ctx.ui.setStatus`), which is harmless. The same kind of fallback for a guard would let writes through with nobody asking.
 
 So the registering package must choose in the registration call, with no default:
 
-- `whenNoHost: "block"`: the tools its rules cover are blocked until a guard host is present.
-- `whenNoHost: <handler>`: the package installs a minimal `tool_call` handler of its own for those tools.
+- `whenNoHost: "block"`: the tools its ask and never rules cover are blocked until a guard host is present. Allow rules need no enforcing without a host.
+- `whenNoHost: <handler>`: the package installs a minimal `tool_call` handler of its own for those tools. A handler that throws blocks the call.
 
-A rule pack that skips the choice fails loudly at registration (it throws), rather than discovering the gap at `session_start`. The option name above is illustrative.
+A rule pack that skips the choice fails loudly at registration (it throws), rather than discovering the gap at `session_start`. The option name is `whenNoHost` in `registerRules(pi, { id, rules, whenNoHost })`, exported from `pi-governor/client`.
 
 ### Status command
 
@@ -106,7 +111,7 @@ A missing guard must not mean ungated. This is the reason for the registration c
 
 Subagent children. Whether a child is covered depends on how the host loads extensions into children, which is not something a rule can see. In the measured pi-subagents foreground child, the probe extension loaded only because the agent listed it in `extensions`; pi-subagents' docs say foreground children never load the parent's ambient extensions. The layer either carries that coupling (and so knows how the host does it) or the host supplies it. Either way the status command must say plainly which, and whether children are covered right now. A guard that looks covered in children but is not is worse than none, because the user stops watching. A child with no UI blocks every `ask` call, which is safe but will stall a child that needs a write, and the reason should say so.
 
-Dialog text is built from untrusted arguments. Strip control characters (including escape sequences) before showing them. When a value is clipped, show its full length. A preview must never hide what is actually sent: if the preview cannot show all of an argument, the dialog says so, or the call is blocked.
+Dialog text is built from untrusted arguments. Control characters (including escape sequences), bidi controls and characters that render as nothing (zero-width joiners, variation selectors, tag characters, fillers) are replaced by `<U+XXXX>` markers rather than dropped, so the dialog shows what is sent. When a value is clipped, show its full length. A preview must never hide what is actually sent. A rule's own `preview(args)` is shown, followed by a list of every argument the text does not demonstrably contain. A short or generic value counts as shown only when the preview also names its argument, because the model controls other arguments that feed the preview and a bare substring match proves nothing. If a preview fails, the full argument list is shown instead.
 
 Match on the name pi registers. Do not match on the server's own tool name or on a display label. Matching is exact and case-sensitive on the registered name, and `*` patterns are the only wildcard. A rule should be able to name a server and a tool by their original names. The layer computes both candidate names the way pi does: the sanitized name, and the sanitized name with the hash suffix. Length alone decides some cases, but a collision (within a server, or across servers) decides others, and which side of a cross-server collision keeps the plain name depends on connect order. So a computed name is a candidate, not an answer:
 
