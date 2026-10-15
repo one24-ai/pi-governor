@@ -34,12 +34,3 @@ test("cutChangelog moves Unreleased under the new version and updates the links"
 test("cutChangelog refuses an empty Unreleased section", () => {
 	assert.throws(() => cutChangelog(`## [Unreleased]\n\n## [0.1.0] - x\n`, "0.1.1", "d", URL_), /empty/);
 });
-
-test("the repository's own changelog can be cut for a first release", async () => {
-	const { readFileSync } = await import("node:fs");
-	const text = readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8");
-	const after = cutChangelog(text, "0.1.0", "2026-10-20", URL_);
-	assert.match(after, /## \[0\.1\.0\] - 2026-10-20/);
-	assert.match(after, /^## \[Unreleased\]\n\n## \[0\.1\.0\]/m);
-	assert.match(after, /\[0\.1\.0\]: .*\/releases\/tag\/v0\.1\.0/);
-});

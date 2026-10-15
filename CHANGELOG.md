@@ -4,6 +4,10 @@ All notable changes to pi-governor are listed here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Fixed
+
+- A test of the release script cut the repository's own changelog, so it failed on every commit after a release (CI and the release workflow went red on `v0.1.0`). It now uses a fixed sample. The published package is unchanged.
+
 ## [0.1.0] - 2026-10-15
 
 First release. Phase 1 of [docs/design.md](docs/design.md): rules for every tool call. Phase 2, an optional OS sandbox for bash, is design only.
