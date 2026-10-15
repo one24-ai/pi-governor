@@ -4,6 +4,14 @@ All notable changes to pi-governor are listed here. The format follows [Keep a C
 
 ## [Unreleased]
 
+These are additions: nothing here changes how an existing rule behaves, so none of it is breaking. A rule without the new fields is evaluated as before.
+
+### Added
+
+- **`when(args)` on a rule**: a synchronous check on the call's arguments, for what `args` equality cannot say. Both `args` and `when` must hold. It runs on the arguments after the guard froze them and is not called when they are not a plain object. Fail closed: a throw, a Promise or any non-boolean result counts as a match for `ask` and `never` rules and as no match for `allow` rules; input that is not a plain object matches `ask` and `never` and not `allow`. The client fallback (`whenNoHost`) uses the same check. `/governor` shows that a rule has a predicate and nothing about what it checks. A rule with `windowMs` and `when` is one approval for every call it matches during the window, not one per argument value.
+- **`reason` on a `never` rule** (1 to 500 characters): added to the block message after the instruction not to retry. **`title` on an `ask` rule** (1 to 100 characters): the dialog title. Both are sanitised and clipped, and rejected at registration on the other verdict or when empty or too long.
+- **`/governor revoke`** drops every live approval and says how many. Any other argument prints a usage line instead of the status; plain `/governor` still prints the status.
+
 ## [0.1.1] - 2026-10-15
 
 ### Fixed
