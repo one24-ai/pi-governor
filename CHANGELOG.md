@@ -4,6 +4,8 @@ All notable changes to pi-governor are listed here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-15
+
 ### Added
 
 - **Subagent children are governed.** With pi-subagents (0.78 or later), the host registers itself at `session_start` as an extension every native Pi child of the session must load, through pi-subagents' `registerRequiredChildExtensions`. Before, a foreground child loaded no governor unless its agent listed it, and its calls ran unchecked, `never` rules included (measured). It registers under `sessionManager.getSessionId()`, the key pi-subagents looks up, and finds the hook in the pi-subagents package this process loaded (from its tools' source and the package's `exports` map) before trying the package name and the agent dir. A foreground child shares the parent's rule packs; a background child has the source defaults, and a pack's rules only if that pack loads in it. External CLI runners are not covered. **Behaviour change:** while pi-governor is registered, pi-subagents refuses pane-native remote launches (another machine), because it cannot transfer local extensions there.
@@ -47,7 +49,8 @@ First release. Phase 1 of [docs/design.md](docs/design.md): rules for every tool
 - Peer dependency on `@earendil-works/pi-coding-agent` `>=1.2.0 <1.3.0`. The behaviour was measured on pi 1.1.0 and again on 1.2.0.
 - Release tooling: `pnpm release`, CI and a tag-driven publish workflow (see [RELEASING.md](RELEASING.md)).
 
-[Unreleased]: https://github.com/one24-ai/pi-governor/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/one24-ai/pi-governor/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/one24-ai/pi-governor/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/one24-ai/pi-governor/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/one24-ai/pi-governor/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/one24-ai/pi-governor/releases/tag/v0.1.0
