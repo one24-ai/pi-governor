@@ -4,6 +4,8 @@ All notable changes to pi-governor are listed here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-15
+
 First release. Phase 1 of [docs/design.md](docs/design.md): rules for every tool call. Phase 2, an optional OS sandbox for bash, is design only.
 
 ### Added
@@ -19,4 +21,6 @@ First release. Phase 1 of [docs/design.md](docs/design.md): rules for every tool
 - Peer dependency on `@earendil-works/pi-coding-agent` `>=1.2.0 <1.3.0`. The behaviour was measured on pi 1.1.0 and again on 1.2.0.
 - Release tooling: `pnpm release`, CI and a tag-driven publish workflow (see [RELEASING.md](RELEASING.md)).
 
-[Unreleased]: https://github.com/one24-ai/pi-governor/commits/main
+[Unreleased]: https://github.com/one24-ai/pi-governor/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/one24-ai/pi-governor/releases/tag/v0.1.0
+
