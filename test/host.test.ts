@@ -233,3 +233,58 @@ test("/governor shows whether freezing is on", async () => {
 	await pi.commands.governor!.handler("", { ...ctx(), ui: { notify: (m: string) => notes.push(m) } });
 	assert.match(notes[0]!, /Argument freezing: ON \(the default\)/);
 });
+
+// ---- /governor revoke ------------------------------------------------------------------------
+
+async function approvedHost(answer = true) {
+	const pi = fakePi();
+	registerRules(asPi(pi) as any, { id: "p", rules: [{ tool: { server: "t", tool: "create_issue" }, verdict: "ask", windowMs: 60_000 }], whenNoHost: "block" });
+	governorHost(asPi(pi));
+	await emit(pi, "session_start", {});
+	const c = ctx(true, answer);
+	assert.equal(await emit(pi, "tool_call", call(WRITE.name), c), undefined);
+	return { pi, c };
+}
+const notifier = () => {
+	const notes: Array<[string, string | undefined]> = [];
+	return { notes, ui: { notify: (m: string, t?: string) => notes.push([m, t]) } };
+};
+
+test("/governor revoke drops live approvals, says how many, and the next call asks again", async () => {
+	const { pi } = await approvedHost();
+	let asked = 0;
+	const c = { ...ctx(true), ui: { confirm: async () => (asked++, true) } };
+	assert.equal(await emit(pi, "tool_call", call(WRITE.name), c), undefined);
+	assert.equal(asked, 0, "inside the window");
+	const n = notifier();
+	await pi.commands.governor!.handler("revoke", { ...ctx(), ui: n.ui });
+	assert.deepEqual(n.notes.map((x) => x[0]), ["pi-governor: revoked 1 live approval. The next matching call asks again."]);
+	assert.equal(await emit(pi, "tool_call", call(WRITE.name), c), undefined);
+	assert.equal(asked, 1, "asks again after revoke");
+});
+
+test("/governor revoke with nothing live says so; surrounding spaces are ignored", async () => {
+	const pi = fakePi();
+	governorHost(asPi(pi));
+	const n = notifier();
+	await pi.commands.governor!.handler("  revoke ", { ...ctx(), ui: n.ui });
+	assert.deepEqual(n.notes.map((x) => x[0]), ["pi-governor: no live approvals to revoke."]);
+});
+
+test("/governor with an unknown argument prints usage, not the status, and revokes nothing", async () => {
+	const { pi } = await approvedHost();
+	const n = notifier();
+	await pi.commands.governor!.handler("revoke now\x1b[2J", { ...ctx(), ui: n.ui });
+	await pi.commands.governor!.handler("reset", { ...ctx(), ui: n.ui });
+	assert.equal(n.notes.length, 2);
+	for (const [text, type] of n.notes) {
+		assert.match(text, /unknown argument/);
+		assert.match(text, /Usage: \/governor \(status\) or \/governor revoke/);
+		assert.doesNotMatch(text, /Subagent children/);
+		assert.doesNotMatch(text, /\x1b/);
+		assert.equal(type, "warning");
+	}
+	const status = notifier();
+	await pi.commands.governor!.handler("", { ...ctx(), ui: status.ui });
+	assert.match(status.notes[0]![0], /Approvals\n  mcp__t__create_issue/, "the approval is still live");
+});
