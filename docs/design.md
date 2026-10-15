@@ -6,7 +6,7 @@ Status: phase 1 is implemented (registry and client, the guard host, the approva
 
 pi does not ask before a tool call (its own `docs/security.md` says so) and has no permission settings. Its only controls are `--tools` and `--exclude-tools`, which switch a tool on or off for the whole session.
 
-pi-chassis's Plan mode does not fill the gap. The pi-chassis README's Build / Plan bullet says it is a guardrail, not a sandbox, and that tools from other extensions (MCP and custom tools) are not restricted. In `extensions/chassis/modes.ts`, the `tool_call` handler blocks `edit`, `write` and unsafe `bash` by name and returns for everything else.
+pi-chassis's Plan mode does not fill the gap. pi-chassis's `docs/usage.md` ("Build and Plan modes") says it is a guardrail, not a sandbox, and that tools from other extensions (MCP and custom tools) are not restricted. In `extensions/chassis/modes.ts`, the `tool_call` handler blocks `edit`, `write` and unsafe `bash` by name and returns for everything else.
 
 So the write tools of an MCP server are callable by the model with no prompt. Take an issue-tracker MCP server whose tools add a comment, transition an issue, create an issue, edit fields, log work or link issues, or a chat MCP server that can send messages. Anything the model reads (a chat message, a ticket body, a log line, command output) can steer it into calling one of those. Prompt injection is the realistic path, not a corner case.
 
