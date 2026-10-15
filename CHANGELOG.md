@@ -4,6 +4,8 @@ All notable changes to pi-governor are listed here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-15
+
 The new rule fields are additions, and a rule without them is evaluated as before. Two changes are **breaking for a package that registers rules**, and the package had no users when they were made: a rule with a field it does not have is now rejected, and a custom dialog title now carries the tool name.
 
 ### Changed
@@ -40,7 +42,8 @@ First release. Phase 1 of [docs/design.md](docs/design.md): rules for every tool
 - Peer dependency on `@earendil-works/pi-coding-agent` `>=1.2.0 <1.3.0`. The behaviour was measured on pi 1.1.0 and again on 1.2.0.
 - Release tooling: `pnpm release`, CI and a tag-driven publish workflow (see [RELEASING.md](RELEASING.md)).
 
-[Unreleased]: https://github.com/one24-ai/pi-governor/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/one24-ai/pi-governor/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/one24-ai/pi-governor/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/one24-ai/pi-governor/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/one24-ai/pi-governor/releases/tag/v0.1.0
 
