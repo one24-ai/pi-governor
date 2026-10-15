@@ -4,6 +4,11 @@ All notable changes to pi-governor are listed here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+- **Subagent children are governed.** With pi-subagents (0.78 or later), the host registers itself at `session_start` as an extension every native Pi child of the session must load, through pi-subagents' `registerRequiredChildExtensions`. Before, a foreground child loaded no governor unless its agent listed it, and its calls ran unchecked, `never` rules included (measured). It registers under `sessionManager.getSessionId()`, the key pi-subagents looks up, and finds the hook in the pi-subagents package this process loaded (from its tools' source and the package's `exports` map) before trying the package name and the agent dir. A foreground child shares the parent's rule packs; a background child has the source defaults, and a pack's rules only if that pack loads in it. External CLI runners are not covered. **Behaviour change:** while pi-governor is registered, pi-subagents refuses pane-native remote launches (another machine), because it cannot transfer local extensions there.
+- `/governor` reports child coverage from what the session did: registered, pi-subagents not found (not known), registration failed (NOT covered, with the error), or not yet known. It used to say "not known" in every case.
+
 ## [0.2.0] - 2026-10-15
 
 The new rule fields are additions, and a rule without them is evaluated as before. Two changes are **breaking for a package that registers rules**, and the package had no users when they were made: a rule with a field it does not have is now rejected, and a custom dialog title now carries the tool name.

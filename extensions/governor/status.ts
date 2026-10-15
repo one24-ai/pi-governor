@@ -5,6 +5,7 @@
  * the handler order as safe, without knowing would be worse than none: the user stops watching.
  */
 
+import type { ChildCoverage } from "./children.ts";
 import type { ApprovalInfo } from "./guard.ts";
 import { formatDuration } from "./dialog.ts";
 import type { HostPack } from "./registry.ts";
@@ -28,6 +29,8 @@ export interface StatusInput {
 	config: { global: ConfigState; project: ConfigState } | undefined;
 	defaults: Record<ConfigurableSource, SourceDefault>;
 	freeze: FreezeSetting;
+	/** What this session did about subagent children. */
+	children: ChildCoverage;
 	approvals: readonly ApprovalInfo[];
 	now: number;
 }
@@ -51,6 +54,26 @@ function configLine(label: string, state: ConfigState): string {
 	const set = Object.entries(state.parsed.defaults).map(([k, v]) => `${k}=${v}`);
 	if (state.parsed.freezeArguments !== undefined) set.push(`freezeArguments=${state.parsed.freezeArguments}`);
 	return `  ${label}: ${path} (${set.length ? set.join(", ") : "no defaults set"})`;
+}
+
+/** The status lines about subagent children. Says only what is known. */
+export function describeChildren(children: ChildCoverage): string[] {
+	switch (children.state) {
+		case "registered":
+			return [
+				"  Subagent children: this session registered pi-governor with pi-subagents, so every native Pi child it starts loads pi-governor, even an agent whose own extensions list leaves it out. A foreground child shares this process and its rule packs. A background child is a process of its own: it has the source defaults, but a pack's rules only if that pack loads in it too. A child has no UI, so every ask call there is blocked. Not covered: external CLI runners, which pi-subagents runs without required extensions. A launch on another machine (pane-native remote Pi) is refused while this is registered, because pi-subagents cannot carry the extension there. A child started in the moment before registration finished gets no governor.",
+			];
+		case "absent":
+			return [
+				"  Subagent children: not known. pi-subagents was not found, so pi-governor registered nothing for children. Another subagent package may load extensions into children its own way; treat its children as not covered unless you set that up.",
+			];
+		case "failed":
+			return [
+				`  Subagent children: NOT covered. Registering pi-governor with pi-subagents failed: ${clipVisible(children.error, 300).text}. Children this session starts may run without pi-governor.`,
+			];
+		case "pending":
+			return ["  Subagent children: not known yet. The session has not started, or registration is still running."];
+	}
 }
 
 export function buildStatus(input: StatusInput): string {
@@ -108,7 +131,7 @@ export function buildStatus(input: StatusInput): string {
 	for (const a of input.approvals) lines.push(`  ${clipVisible(a.tool, 80).text}: ${formatDuration(Math.max(a.expiresAt - input.now, 0))} left`);
 
 	lines.push("", "Not covered, or not known");
-	lines.push("  Subagent children: not known. A child is covered only if its host loads this extension into it, and this package cannot see how that host does it. Treat children as not covered unless you set that up. A child with no UI blocks every ask call.");
+	lines.push(...describeChildren(input.children));
 	lines.push(
 		input.freeze.enabled
 			? "  Handler order: measured on pi 1.2.0. pi runs tool_call handlers in load order. This extension freezes a call's arguments before it checks them, so a handler loaded after it that edits them in place cannot change what the tool receives: in strict-mode code (every ES module) the write throws and the call fails, otherwise the write is silently ignored. A handler loaded before it is checked as it left the arguments. A value that cannot be frozen (a Map, Set, Date, binary data, a Proxy or an accessor) blocks the call."

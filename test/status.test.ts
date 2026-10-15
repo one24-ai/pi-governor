@@ -21,6 +21,7 @@ const base = (over: Partial<StatusInput> = {}): StatusInput => ({
 	config: undefined,
 	defaults: { ...SHIPPED_DEFAULTS },
 	freeze: { enabled: true, reason: "the default" },
+	children: { state: "pending" },
 	approvals: [],
 	now: 1_000_000,
 	...over,
@@ -28,8 +29,7 @@ const base = (over: Partial<StatusInput> = {}): StatusInput => ({
 
 test("the status never claims subagent children or handler order are covered", () => {
 	const text = buildStatus(base());
-	assert.match(text, /Subagent children: not known/);
-	assert.match(text, /Treat children as not covered/);
+	assert.match(text, /Subagent children: not known yet/);
 	assert.match(text, /Handler order: measured on pi 1\.2\.0/);
 	assert.match(text, /freezes a call's arguments/);
 	assert.match(text, /Argument freezing: ON \(the default\)/);
@@ -124,4 +124,20 @@ test("a rule with a predicate is shown as having one, without any text for it", 
 	const text = buildStatus(base({ packs: [pack("p", { tool: WRITE.name, verdict: "never", when: secret, reason: "private reason text" })], tools: [WRITE] }));
 	assert.match(text, /never mcp__t__create_issue, narrowed by a predicate/);
 	assert.doesNotMatch(text, /SECRET-PATTERN|private reason text/);
+});
+
+test("child coverage is described by what this session actually did", () => {
+	assert.match(buildStatus(base({ children: { state: "registered" } })), /every native Pi child it starts loads pi-governor/);
+	assert.match(buildStatus(base({ children: { state: "registered" } })), /Not covered: external CLI runners/);
+	assert.match(buildStatus(base({ children: { state: "registered" } })), /another machine .* is refused/);
+	assert.match(buildStatus(base({ children: { state: "registered" } })), /a pack's rules only if that pack loads in it too/);
+	assert.match(buildStatus(base({ children: { state: "absent" } })), /not known\. pi-subagents was not found/);
+	const failed = buildStatus(base({ children: { state: "failed", error: `boom\x1b[2J${"x".repeat(500)}` } }));
+	assert.match(failed, /NOT covered\. Registering pi-governor with pi-subagents failed: boom<U\+001B>/);
+	assert.ok(!failed.includes("\x1b"));
+	assert.ok(!/x{400}/.test(failed), "a long error is clipped");
+	for (const state of ["registered", "absent", "pending"] as const) {
+		const t = buildStatus(base({ children: state === "registered" ? { state } : { state } }));
+		assert.doesNotMatch(t, /Subagent children: covered\b/, "never a bare claim of coverage");
+	}
 });

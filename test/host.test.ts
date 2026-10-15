@@ -8,7 +8,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { registerRules } from "../extensions/governor/client.ts";
-import governorHost from "../extensions/governor/host.ts";
+import governorHost, { createGovernorHost } from "../extensions/governor/host.ts";
+import type { RequiredChildHook } from "../extensions/governor/children.ts";
 import { hostCount, isCovered, livePacks, PENDING, REGISTRY } from "../extensions/governor/registry.ts";
 import type { LiveTool } from "../extensions/governor/rules.ts";
 
@@ -53,7 +54,7 @@ function fakePi(tools: LiveTool[] = [WRITE, READ, BASH]) {
 	};
 }
 const asPi = (p: ReturnType<typeof fakePi>) => p as unknown as Parameters<typeof governorHost>[0];
-const session = {};
+const session = { getSessionId: () => "test-session", getSessionFile: () => undefined };
 const ctx = (hasUI = false, answer = true) => ({
 	sessionManager: session,
 	cwd: projectDir,
@@ -65,17 +66,20 @@ const emit = async (pi: ReturnType<typeof fakePi>, event: string, e: any, c: any
 	for (const h of pi.handlers[event] ?? []) last = (await h(e, c)) ?? last;
 	return last;
 };
+/** The host as tests load it: never the real pi-subagents, unless a test passes a hook. */
+const host = (p: ReturnType<typeof fakePi>, loadChildHook: (specs: string[]) => Promise<RequiredChildHook | undefined> = async () => undefined) => createGovernorHost(asPi(p), { loadChildHook });
 const call = (toolName: string, extra: object = {}) => ({ toolName, toolCallId: "c1", input: {}, ...extra });
 
 test("package.json loads the host, and the host's default export is a function", () => {
 	const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 	assert.deepEqual(pkg.pi.extensions, ["./extensions/governor/host.ts"]);
 	assert.equal(typeof governorHost, "function");
+	assert.equal(governorHost.length, 1, "the default export takes only pi");
 });
 
 test("loading publishes the store and installs the handlers", () => {
 	const pi = fakePi();
-	governorHost(asPi(pi));
+	host(pi);
 	assert.equal(hostCount(), 1);
 	for (const event of ["session_start", "tool_call", "tool_execution_start", "tool_execution_end", "session_shutdown"]) {
 		assert.equal(pi.handlers[event]?.length, 1, event);
@@ -87,7 +91,7 @@ test("/governor reports the live state through the UI", async () => {
 	writeFileSync(join(agentDir, "governor.json"), "{ nope");
 	const pi = fakePi();
 	registerRules(asPi(pi) as any, { id: "p", rules: [{ tool: { server: "t", tool: "create_issue" }, verdict: "ask" }], whenNoHost: "block" });
-	governorHost(asPi(pi));
+	host(pi);
 	await emit(pi, "session_start", {});
 	const notes: Array<[string, string | undefined]> = [];
 	await pi.commands.governor!.handler("", { ...ctx(), ui: { notify: (m: string, t?: string) => notes.push([m, t]) } });
@@ -100,7 +104,7 @@ test("/governor reports the live state through the UI", async () => {
 
 test("/governor still answers when building the status fails", async () => {
 	const pi = fakePi();
-	governorHost(asPi(pi));
+	host(pi);
 	(pi as any).getAllTools = () => {
 		throw new Error("tool list unavailable");
 	};
@@ -111,7 +115,7 @@ test("/governor still answers when building the status fails", async () => {
 
 test("session_start marks the session covered; shutdown ends the store", async () => {
 	const pi = fakePi();
-	governorHost(asPi(pi));
+	host(pi);
 	assert.equal(isCovered(session), false);
 	await emit(pi, "session_start", {});
 	assert.equal(isCovered(session), true);
@@ -122,7 +126,7 @@ test("session_start marks the session covered; shutdown ends the store", async (
 test("a registered package's rules are applied to real calls", async () => {
 	const pi = fakePi();
 	registerRules(asPi(pi) as any, { id: "p", rules: [{ tool: { server: "t", tool: "get_issue" }, verdict: "never" }], whenNoHost: "block" });
-	governorHost(asPi(pi));
+	host(pi);
 	await emit(pi, "session_start", {});
 	assert.equal(livePacks().length, 1);
 	assert.equal((await emit(pi, "tool_call", call(READ.name)))?.block, true, "never beats readOnlyHint");
@@ -134,7 +138,7 @@ test("a registered package's rules are applied to real calls", async () => {
 test("the pack's own handler stands down in a covered session", async () => {
 	const pi = fakePi();
 	registerRules(asPi(pi) as any, { id: "p", rules: [{ tool: { server: "t", tool: "create_issue" }, verdict: "ask" }], whenNoHost: () => ({ block: true, reason: "fallback" }) });
-	governorHost(asPi(pi));
+	host(pi);
 	await emit(pi, "session_start", {});
 	const r = await emit(pi, "tool_call", call(WRITE.name), ctx(true, true));
 	assert.equal(r, undefined, "the host asked and the user approved; the fallback did not run");
@@ -143,7 +147,7 @@ test("the pack's own handler stands down in a covered session", async () => {
 test("tool_execution_start and end drive trustedParents, and parentToolCallId is forwarded", async () => {
 	const pi = fakePi();
 	registerRules(asPi(pi) as any, { id: "p", rules: [{ tool: { server: "t", tool: "create_issue" }, verdict: "ask", trustedParents: ["confirmed"] }], whenNoHost: "block" });
-	governorHost(asPi(pi));
+	host(pi);
 	await emit(pi, "session_start", {});
 	await emit(pi, "tool_execution_start", { toolCallId: "p1", toolName: "confirmed" });
 	assert.equal(await emit(pi, "tool_call", call(WRITE.name, { toolCallId: "p1/1", parentToolCallId: "p1" })), undefined);
@@ -157,7 +161,7 @@ test("governor.json in the agent dir sets source defaults; the project file can 
 	mkdirSync(join(projectDir, ".pi"));
 	writeFileSync(join(projectDir, ".pi", "governor.json"), JSON.stringify({ defaults: { mcp: "hints", extension: "never" } }));
 	const pi = fakePi([WRITE, BASH, { name: "mine", sourceInfo: src("/x.ts") }]);
-	governorHost(asPi(pi));
+	host(pi);
 	await emit(pi, "session_start", {});
 	assert.equal((await emit(pi, "tool_call", call("bash")))?.block, true, "builtin: ask, no UI");
 	assert.equal((await emit(pi, "tool_call", call("mine")))?.block, true, "extension: never from the project file");
@@ -167,7 +171,7 @@ test("governor.json in the agent dir sets source defaults; the project file can 
 test("a broken governor.json makes every source ask", async () => {
 	writeFileSync(join(agentDir, "governor.json"), "{ not json");
 	const pi = fakePi();
-	governorHost(asPi(pi));
+	host(pi);
 	await emit(pi, "session_start", {});
 	assert.equal((await emit(pi, "tool_call", call("bash")))?.block, true);
 	assert.equal((await emit(pi, "tool_call", call(READ.name)))?.block, true);
@@ -176,14 +180,14 @@ test("a broken governor.json makes every source ask", async () => {
 test("a governor.json that cannot be read as a file makes every source ask", async () => {
 	mkdirSync(join(agentDir, "governor.json"));
 	const pi = fakePi();
-	governorHost(asPi(pi));
+	host(pi);
 	await emit(pi, "session_start", {});
 	assert.equal((await emit(pi, "tool_call", call("bash")))?.block, true, "a directory in place of the file is not 'missing'");
 });
 
 test("no governor.json at all leaves the shipped defaults", async () => {
 	const pi = fakePi();
-	governorHost(asPi(pi));
+	host(pi);
 	await emit(pi, "session_start", {});
 	assert.equal(await emit(pi, "tool_call", call("bash")), undefined);
 	assert.equal(await emit(pi, "tool_call", call(READ.name)), undefined);
@@ -192,13 +196,13 @@ test("no governor.json at all leaves the shipped defaults", async () => {
 
 test("a tool_call before session_start uses the shipped defaults, and still blocks an unannotated write", async () => {
 	const pi = fakePi();
-	governorHost(asPi(pi));
+	host(pi);
 	assert.equal((await emit(pi, "tool_call", call(WRITE.name)))?.block, true);
 });
 
 test("freezeArguments: calls the host lets through are frozen by default, and not when the global file turns it off", async () => {
 	const pi = fakePi();
-	governorHost(asPi(pi));
+	host(pi);
 	await emit(pi, "session_start", {});
 	const input = { path: "a" };
 	assert.equal(await emit(pi, "tool_call", { toolName: "bash", toolCallId: "c1", input }), undefined);
@@ -207,7 +211,7 @@ test("freezeArguments: calls the host lets through are frozen by default, and no
 	delete g[REGISTRY];
 	writeFileSync(join(agentDir, "governor.json"), JSON.stringify({ freezeArguments: false }));
 	const pi2 = fakePi();
-	governorHost(asPi(pi2));
+	host(pi2);
 	await emit(pi2, "session_start", {});
 	const loose = { path: "a" };
 	assert.equal(await emit(pi2, "tool_call", { toolName: "bash", toolCallId: "c2", input: loose }), undefined);
@@ -218,7 +222,7 @@ test("freezeArguments: a project file cannot turn freezing off", async () => {
 	mkdirSync(join(projectDir, ".pi"));
 	writeFileSync(join(projectDir, ".pi", "governor.json"), JSON.stringify({ freezeArguments: false }));
 	const pi = fakePi();
-	governorHost(asPi(pi));
+	host(pi);
 	await emit(pi, "session_start", {});
 	const input = { path: "a" };
 	await emit(pi, "tool_call", { toolName: "bash", toolCallId: "c1", input });
@@ -227,7 +231,7 @@ test("freezeArguments: a project file cannot turn freezing off", async () => {
 
 test("/governor shows whether freezing is on", async () => {
 	const pi = fakePi();
-	governorHost(asPi(pi));
+	host(pi);
 	await emit(pi, "session_start", {});
 	const notes: string[] = [];
 	await pi.commands.governor!.handler("", { ...ctx(), ui: { notify: (m: string) => notes.push(m) } });
@@ -239,7 +243,7 @@ test("/governor shows whether freezing is on", async () => {
 async function approvedHost(answer = true) {
 	const pi = fakePi();
 	registerRules(asPi(pi) as any, { id: "p", rules: [{ tool: { server: "t", tool: "create_issue" }, verdict: "ask", windowMs: 60_000 }], whenNoHost: "block" });
-	governorHost(asPi(pi));
+	host(pi);
 	await emit(pi, "session_start", {});
 	const c = ctx(true, answer);
 	assert.equal(await emit(pi, "tool_call", call(WRITE.name), c), undefined);
@@ -265,7 +269,7 @@ test("/governor revoke drops live approvals, says how many, and the next call as
 
 test("/governor revoke with nothing live says so; surrounding spaces are ignored", async () => {
 	const pi = fakePi();
-	governorHost(asPi(pi));
+	host(pi);
 	const n = notifier();
 	await pi.commands.governor!.handler("  revoke ", { ...ctx(), ui: n.ui });
 	assert.deepEqual(n.notes.map((x) => x[0]), ["pi-governor: no live approvals to revoke."]);
@@ -287,4 +291,134 @@ test("/governor with an unknown argument prints usage, not the status, and revok
 	const status = notifier();
 	await pi.commands.governor!.handler("", { ...ctx(), ui: status.ui });
 	assert.match(status.notes[0]![0], /Approvals\n  mcp__t__create_issue/, "the approval is still live");
+});
+
+// ---- subagent children --------------------------------------------------------------------------
+
+function fakeHook(opts: { throwOnRegister?: string } = {}) {
+	const calls: Array<{ sessionId: string; extensions: Array<{ id: string; path: string }> }> = [];
+	let disposed = 0;
+	const hook: RequiredChildHook = {
+		registerRequiredChildExtensions(input) {
+			if (opts.throwOnRegister) throw new Error(opts.throwOnRegister);
+			calls.push(input);
+			return { dispose: () => void disposed++ };
+		},
+	};
+	return { hook, calls, disposed: () => disposed };
+}
+const statusOf = async (pi: ReturnType<typeof fakePi>) => {
+	const notes: string[] = [];
+	await pi.commands.governor!.handler("", { ...ctx(), ui: { notify: (m: string) => notes.push(m) } });
+	return notes[0]!;
+};
+
+test("children: session_start registers the host with pi-subagents under the session id", async () => {
+	const pi = fakePi();
+	const f = fakeHook();
+	host(pi, async () => f.hook);
+	await emit(pi, "session_start", {}, { ...ctx(), sessionManager: { getSessionId: () => "01abc", getSessionFile: () => "/sessions/x.jsonl" } });
+	assert.equal(f.calls.length, 1);
+	assert.equal(f.calls[0]!.sessionId, "01abc", "the id pi-subagents looks up, never the session file path");
+	assert.deepEqual(f.calls[0]!.extensions.map((e) => e.id), ["pi-governor"]);
+	assert.match(f.calls[0]!.extensions[0]!.path, /extensions\/governor\/host\.ts$/);
+	assert.match(await statusOf(pi), /registered pi-governor with pi-subagents/);
+});
+
+test("children: shutdown disposes the registration, and a new session registers again", async () => {
+	const pi = fakePi();
+	const f = fakeHook();
+	host(pi, async () => f.hook);
+	const s = { ...ctx(), sessionManager: { getSessionId: () => "01abc", getSessionFile: () => undefined } };
+	await emit(pi, "session_start", {}, s);
+	await emit(pi, "session_start", {}, s);
+	assert.equal(f.disposed(), 1, "a second session_start drops the first registration first");
+	await emit(pi, "session_shutdown", {}, s);
+	assert.equal(f.disposed(), 2);
+	assert.equal(f.calls.length, 2);
+});
+
+test("children: without pi-subagents the status says not known, never covered", async () => {
+	const pi = fakePi();
+	host(pi, async () => undefined);
+	await emit(pi, "session_start", {});
+	const text = await statusOf(pi);
+	assert.match(text, /Subagent children: not known\. pi-subagents was not found/);
+	assert.doesNotMatch(text, /registered pi-governor/);
+});
+
+test("children: a registration pi-subagents refuses is reported as NOT covered, and the session still works", async () => {
+	const pi = fakePi();
+	const f = fakeHook({ throwOnRegister: "Required child extensions are already registered for session '01abc'; dispose them first." });
+	host(pi, async () => f.hook);
+	await emit(pi, "session_start", {}, { ...ctx(), sessionManager: { getSessionId: () => "01abc", getSessionFile: () => undefined } });
+	assert.match(await statusOf(pi), /Subagent children: NOT covered\. Registering pi-governor with pi-subagents failed: Required child extensions are already registered/);
+	assert.equal((await emit(pi, "tool_call", call(WRITE.name)))?.block, true, "the guard still works in this session");
+});
+
+test("children: a loader that throws is reported as a failure, not as covered", async () => {
+	const pi = fakePi();
+	host(pi, async () => {
+		throw new Error("import exploded");
+	});
+	await emit(pi, "session_start", {});
+	assert.match(await statusOf(pi), /NOT covered.*import exploded/);
+});
+
+test("children: the host looks for pi-subagents where this process loaded it, first", async () => {
+	const pkg = mkdtempSync(join(tmpdir(), "governor-subagents-"));
+	try {
+		writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: "pi-subagents", exports: { "./required-child-extensions": { default: "./hook.js" } } }));
+		writeFileSync(join(pkg, "hook.js"), "export {}\n");
+		const pi = fakePi([WRITE, READ, BASH, { name: "subagent", sourceInfo: { path: join(pkg, "index.js"), source: "x", scope: "user", origin: "package", baseDir: pkg } as LiveTool["sourceInfo"] }]);
+		let asked: string[] = [];
+		host(pi, async (specs) => {
+			asked = specs;
+			return undefined;
+		});
+		await emit(pi, "session_start", {});
+		assert.equal(asked[0], `file://${join(pkg, "hook.js")}`);
+		assert.equal(asked[1], "pi-subagents/required-child-extensions");
+	} finally {
+		rmSync(pkg, { recursive: true, force: true });
+	}
+});
+
+test("children: before session_start the status says not known yet", async () => {
+	const pi = fakePi();
+	host(pi);
+	assert.match(await statusOf(pi), /Subagent children: not known yet/);
+});
+
+test("children: a shutdown while the hook is still loading leaves nothing registered", async () => {
+	const pi = fakePi();
+	const f = fakeHook();
+	let release!: () => void;
+	const gate = new Promise<void>((r) => (release = r));
+	host(pi, async () => (await gate, f.hook));
+	const s = { ...ctx(), sessionManager: { getSessionId: () => "01abc", getSessionFile: () => undefined } };
+	const starting = emit(pi, "session_start", {}, s);
+	await new Promise((r) => setImmediate(r));
+	await emit(pi, "session_shutdown", {}, s);
+	release();
+	await starting;
+	assert.equal(f.calls.length, 0, "nothing registered for a session that ended while loading");
+});
+
+test("children: two overlapping session_starts keep only the newer registration", async () => {
+	const pi = fakePi();
+	const f = fakeHook();
+	const releases: Array<() => void> = [];
+	host(pi, () => new Promise((r) => releases.push(() => r(f.hook))));
+	const s = (id: string) => ({ ...ctx(), sessionManager: { getSessionId: () => id, getSessionFile: () => undefined } });
+	const first = emit(pi, "session_start", {}, s("old"));
+	await new Promise((r) => setImmediate(r));
+	const second = emit(pi, "session_start", {}, s("new"));
+	await new Promise((r) => setImmediate(r));
+	releases[1]!();
+	await second;
+	releases[0]!();
+	await first;
+	assert.deepEqual(f.calls.map((c) => c.sessionId), ["new"], "the stale start never registers");
+	assert.match(await statusOf(pi), /registered pi-governor/);
 });
