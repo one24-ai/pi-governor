@@ -162,13 +162,35 @@ export function resolveDefaults(global?: ParsedConfig, project?: ParsedConfig): 
 
 // ---- rules -----------------------------------------------------------------------------------
 
+/** Every field a rule may have. Anything else is rejected, because it is almost always a typo. */
+export const RULE_FIELDS: ReadonlySet<string> = new Set(["tool", "args", "when", "verdict", "reason", "title", "preview", "windowMs", "trustedParents"]);
+
+/**
+ * Reject a field a rule does not have. A typo such as `arg` for `args`, or `whn` for `when`, would
+ * otherwise register without complaint and leave the narrowing out, so an `allow` rule written to
+ * cover one path would cover every call to the tool. Symbol keys are rejected too.
+ */
+function rejectUnknownFields(rule: object): void {
+	// Own keys and keys on the prototype chain: snapshotRule reads fields by name, so a rule built on
+	// a prototype works, and an unknown name there is just as likely to be a typo. Object.prototype
+	// is left out (its members are on every object and cannot be a rule author's typo).
+	const keys = new Set<string | symbol>();
+	for (let o: object | null = rule; o !== null && o !== Object.prototype; o = Object.getPrototypeOf(o)) for (const key of Reflect.ownKeys(o)) keys.add(key);
+	const unknown = [...keys].filter((key) => typeof key !== "string" || !RULE_FIELDS.has(key));
+	if (unknown.length === 0) return;
+	const names = unknown.map((key) => (typeof key === "string" ? `"${key.length > 40 ? `${key.slice(0, 40)}...` : key}"` : "a symbol key")).join(", ");
+	throw new TypeError(`rule has no field ${names}; the fields are ${[...RULE_FIELDS].join(", ")}`);
+}
+
 /**
  * A frozen copy of a rule, validated. Every property is read once, so a rule built with getters
  * cannot pass validation and then change; later edits to the original do not reach the copy. The
- * guard and the registering package's fallback both use the copy.
+ * guard and the registering package's fallback both use the copy. A field a rule does not have is
+ * an error (see `rejectUnknownFields`).
  */
 export function snapshotRule(rule: Rule): Rule {
 	if (!isRecord(rule)) throw new TypeError("rule must be an object");
+	rejectUnknownFields(rule);
 	const { tool, args, when, verdict, reason, title, preview, windowMs, trustedParents } = rule;
 	const copy: Record<string, unknown> = {
 		tool: isRecord(tool) ? Object.freeze({ server: tool.server, tool: tool.tool }) : tool,
@@ -185,9 +207,10 @@ export function snapshotRule(rule: Rule): Rule {
 	return Object.freeze(copy) as unknown as Rule;
 }
 
-/** Throws on a rule the layer cannot apply safely. Called at registration. */
+/** Throws on a rule the layer cannot apply safely, including one with a field it does not have. Called at registration. */
 export function validateRule(rule: Rule): void {
 	if (!isRecord(rule)) throw new TypeError("rule must be an object");
+	rejectUnknownFields(rule);
 	if (typeof rule.verdict !== "string" || !Object.hasOwn(VERDICT_RANK, rule.verdict)) {
 		throw new TypeError(`rule verdict must be allow, ask or never, got ${String(rule.verdict)}`);
 	}

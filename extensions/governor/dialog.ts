@@ -160,9 +160,14 @@ export function buildDialog({ toolName, input, decision }: DialogInput): Dialog 
 	const window = effectiveWindowMs(decision.rules);
 	if (window !== undefined) notes.push(`If you allow this, ${name.text} also runs without asking for the next ${formatDuration(window)}.`);
 
+	// A rule's title is the rule author's own text, so it could say anything about the tool. The tool
+	// name is always the first thing shown: after the title in the title line, and again as the first
+	// line of the message. The default title is already "Allow <tool>?".
 	const ruleTitle = decision.rules.find((r) => typeof r.title === "string" && r.title.length > 0)?.title;
+	const toolLabel = `${name.text}${name.clipped ? "..." : ""}`;
+	if (ruleTitle === undefined) return { title: `Allow ${toolLabel}?`, message: `${shown}\n\n${notes.join("\n")}` };
 	return {
-		title: ruleTitle === undefined ? `Allow ${name.text}${name.clipped ? "..." : ""}?` : clipVisible(ruleTitle, MAX_TITLE_CHARS).text,
-		message: `${shown}\n\n${notes.join("\n")}`,
+		title: `${clipVisible(ruleTitle, MAX_TITLE_CHARS).text} (${toolLabel})`,
+		message: `Tool: ${toolLabel}\n\n${shown}\n\n${notes.join("\n")}`,
 	};
 }

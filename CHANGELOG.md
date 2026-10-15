@@ -4,12 +4,17 @@ All notable changes to pi-governor are listed here. The format follows [Keep a C
 
 ## [Unreleased]
 
-These are additions: nothing here changes how an existing rule behaves, so none of it is breaking. A rule without the new fields is evaluated as before.
+The new rule fields are additions, and a rule without them is evaluated as before. Two changes are **breaking for a package that registers rules**, and the package had no users when they were made: a rule with a field it does not have is now rejected, and a custom dialog title now carries the tool name.
+
+### Changed
+
+- **Breaking: a rule with a field it does not have is rejected at registration**, with the field named (`rule has no field "arg"; the fields are tool, args, when, ...`). The fields are `tool`, `args`, `when`, `verdict`, `reason`, `title`, `preview`, `windowMs` and `trustedParents`. A typo used to register without complaint and leave the narrowing out, so `{ verdict: "allow", arg: { path: "/safe" } }` (meant `args`) allowed every call to the tool. Symbol keys and inherited unknown names are rejected too.
+- **Breaking: a rule's `title` no longer replaces the tool name.** The dialog title is now `<title> (<tool>)` and the message opens with `Tool: <tool>`, so a title cannot hide which tool is being asked about. Without a custom title the dialog is unchanged (`Allow <tool>?`).
 
 ### Added
 
 - **`when(args)` on a rule**: a synchronous check on the call's arguments, for what `args` equality cannot say. Both `args` and `when` must hold. It runs on the arguments after the guard froze them and is not called when they are not a plain object. Fail closed: a throw, a Promise or any non-boolean result counts as a match for `ask` and `never` rules and as no match for `allow` rules; input that is not a plain object matches `ask` and `never` and not `allow`. The client fallback (`whenNoHost`) uses the same check. `/governor` shows that a rule has a predicate and nothing about what it checks. A rule with `windowMs` and `when` is one approval for every call it matches during the window, not one per argument value.
-- **`reason` on a `never` rule** (1 to 500 characters): added to the block message after the instruction not to retry. **`title` on an `ask` rule** (1 to 100 characters): the dialog title. Both are sanitised and clipped, and rejected at registration on the other verdict or when empty or too long.
+- **`reason` on a `never` rule** (1 to 500 characters): added to the block message after the instruction not to retry. **`title` on an `ask` rule** (1 to 100 characters): the start of the dialog title, followed by the tool name. Both are sanitised and clipped, and rejected at registration on the other verdict or when empty or too long.
 - **`/governor revoke`** drops every live approval and says how many. Any other argument prints a usage line instead of the status; plain `/governor` still prints the status.
 
 ## [0.1.1] - 2026-10-15

@@ -414,10 +414,11 @@ test("never: the reason is sanitised and clipped like other model-visible text",
 	assert.ok(!r!.reason!.includes("z".repeat(501)), "clipped to the cap");
 });
 
-test("ask: the rule's title is the dialog title, sanitised and clipped", async () => {
+test("ask: the rule's title leads the dialog title, with the tool named, sanitised and clipped", async () => {
 	const plain = setup({ packs: [pack({ tool: WRITE.name, verdict: "ask", title: "Run a deploy?" })], answer: true });
 	await plain.guard.check(event(WRITE.name), plain.ctx);
-	assert.equal(plain.ctx.dialogs[0]!.title, "Run a deploy?");
+	assert.equal(plain.ctx.dialogs[0]!.title, `Run a deploy? (${WRITE.name})`);
+	assert.match(plain.ctx.dialogs[0]!.message, new RegExp(`^Tool: ${WRITE.name}`));
 	const odd = setup({ packs: [pack({ tool: WRITE.name, verdict: "ask", title: `Go\x1b[2J\u202e?\n${"t".repeat(300)}` } as Rule)], answer: true });
 	await odd.guard.check(event(WRITE.name), odd.ctx);
 	const title = odd.ctx.dialogs[0]!.title;
@@ -425,5 +426,6 @@ test("ask: the rule's title is the dialog title, sanitised and clipped", async (
 	assert.match(title, /<U\+001B>/);
 	assert.match(title, /<U\+202E>/);
 	assert.match(title, /<U\+000A>/);
-	assert.ok(title.length < 200);
+	assert.ok(title.length < 200 + WRITE.name.length + 4);
+	assert.ok(title.endsWith(`(${WRITE.name})`), "the tool name is the last thing in the title, after the rule's text");
 });

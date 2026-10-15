@@ -13,6 +13,7 @@ import {
 	matchPattern,
 	MAX_REASON_CHARS,
 	MAX_TITLE_CHARS,
+	RULE_FIELDS,
 	parseConfig,
 	resolveDefaults,
 	type Rule,
@@ -321,4 +322,64 @@ test("snapshotRule: when, reason and title are read once into the frozen copy", 
 	assert.equal(reads, 2);
 	assert.equal(Object.isFrozen(copy), true);
 	assert.throws(() => snapshotRule({ tool: "x", verdict: "ask", reason: "nope" }), /reason applies only to never/);
+});
+
+const WRITE_NAME = "mcp__t__put";
+
+// ---- fields a rule does not have --------------------------------------------------------------
+
+test("validateRule rejects a field a rule does not have, naming it", () => {
+	const base = { tool: "x", verdict: "allow" as const };
+	assert.throws(() => validateRule({ ...base, arg: { path: "/safe" } } as unknown as Rule), /no field "arg"/);
+	assert.throws(() => validateRule({ ...base, whn: () => true } as unknown as Rule), /no field "whn"/);
+	assert.throws(() => validateRule({ ...base, verdit: "never" } as unknown as Rule), /no field "verdit"/);
+	assert.throws(() => validateRule({ ...base, window: 1000 } as unknown as Rule), /no field "window"/);
+	assert.throws(() => validateRule({ ...base, [Symbol("x")]: 1 } as unknown as Rule), /symbol key/);
+	assert.throws(() => validateRule({ ...base, a: 1, b: 2 } as unknown as Rule), /no field "a", "b"/);
+	assert.throws(() => validateRule(JSON.parse('{"tool":"x","verdict":"allow","__proto__x":1}')), /no field/);
+	assert.throws(() => validateRule({ ...base, ["y".repeat(100)]: 1 } as unknown as Rule), /y{40}\.\.\./, "a long name is clipped in the message");
+});
+
+test("validateRule still accepts every field a rule has", () => {
+	validateRule({
+		tool: { server: "s", tool: "t" },
+		args: { a: "b" },
+		when: () => true,
+		verdict: "ask",
+		title: "Go?",
+		preview: () => "p",
+		windowMs: 1000,
+		trustedParents: ["p"],
+	});
+	validateRule({ tool: "x", verdict: "never", reason: "why", args: { a: 1 }, when: () => false });
+	validateRule({ tool: "x", verdict: "allow" });
+});
+
+test("a typo'd narrowing field no longer turns an allow rule into a blanket allow", () => {
+	const typo = { tool: WRITE_NAME, verdict: "allow", arg: { path: "/safe" } } as unknown as Rule;
+	assert.throws(() => snapshotRule(typo), /no field "arg"/);
+	assert.throws(() => snapshotRule({ tool: WRITE_NAME, verdict: "allow", whn: (a: any) => a.path === "/safe" } as unknown as Rule), /no field "whn"/);
+});
+
+test("snapshotRule rejects an unknown field before copying, including a non-enumerable or inherited one", () => {
+	assert.throws(() => snapshotRule(Object.defineProperty({ tool: "x", verdict: "never" }, "extra", { get: () => 1, enumerable: false })), /no field "extra"/);
+	const inheritedTypo = Object.create({ whn: () => true });
+	inheritedTypo.tool = "x";
+	inheritedTypo.verdict = "allow";
+	assert.throws(() => snapshotRule(inheritedTypo), /no field "whn"/);
+});
+
+test("a rule built on a prototype still works, and its copy is a plain frozen object of known fields", () => {
+	const copy = snapshotRule(Object.create({ tool: "x", verdict: "never", reason: "why" }));
+	assert.deepEqual(Reflect.ownKeys(copy).sort(), ["reason", "tool", "verdict"]);
+	assert.equal(Object.isFrozen(copy), true);
+});
+
+test("members every object has are not mistaken for typos", () => {
+	validateRule({ tool: "x", verdict: "never" });
+	assert.doesNotThrow(() => snapshotRule({ tool: "x", verdict: "never", ...{} }));
+});
+
+test("RULE_FIELDS is the set of fields the Rule type declares", () => {
+	assert.deepEqual([...RULE_FIELDS].sort(), ["args", "preview", "reason", "title", "tool", "trustedParents", "verdict", "when", "windowMs"]);
 });
