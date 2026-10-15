@@ -1,7 +1,8 @@
 {
   "name": "pi-governor",
   "version": "0.0.0",
-  "description": "A guard layer for pi tool calls (placeholder: not yet implemented)",
+  "description": "A guard layer for pi tool calls: rules that allow, ask or never allow each call, shared by every package",
+  "type": "module",
   "license": "MIT",
   "author": "Zach Koncir",
   "repository": {
@@ -9,6 +10,60 @@
     "url": "git+https://github.com/one24-ai/pi-governor.git"
   },
   "homepage": "https://github.com/one24-ai/pi-governor#readme",
-  "keywords": ["pi-package", "pi", "guard", "permissions", "sandbox"],
-  "files": ["README.md", "LICENSE"]
+  "bugs": {
+    "url": "https://github.com/one24-ai/pi-governor/issues"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "guard",
+    "permissions",
+    "sandbox"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/governor/index.d.ts",
+      "default": "./dist/governor/index.js"
+    },
+    "./client": {
+      "types": "./dist/governor/client.d.ts",
+      "default": "./dist/governor/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/governor/host.ts"
+    ]
+  },
+  "files": [
+    "dist",
+    "extensions",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "build": "node scripts/link-pi.mjs && rm -rf dist && tsc -p tsconfig.build.json",
+    "test": "node scripts/link-pi.mjs && node --experimental-strip-types --no-warnings --test test/*.test.ts",
+    "typecheck": "node scripts/link-pi.mjs && tsc --noEmit",
+    "link-pi": "node scripts/link-pi.mjs",
+    "check": "pnpm test && pnpm typecheck && pnpm build",
+    "prepack": "pnpm build",
+    "release": "node scripts/release.mjs"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=1.2.0 <1.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "typescript": "5.9.3"
+  }
 }
