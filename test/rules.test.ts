@@ -11,10 +11,14 @@ import {
 	decide,
 	type LiveTool,
 	matchPattern,
+	MAX_REASON_CHARS,
+	MAX_TITLE_CHARS,
+	RULE_FIELDS,
 	parseConfig,
 	resolveDefaults,
 	type Rule,
 	ruleNamesTool,
+	snapshotRule,
 	SHIPPED_DEFAULTS,
 	validateRule,
 } from "../extensions/governor/rules.ts";
@@ -224,4 +228,158 @@ test("resolveDefaults: global sets, project only tightens, a broken file falls b
 	assert.deepEqual(resolveDefaults(parseConfig("{"), undefined), { mcp: "ask", builtin: "ask", extension: "ask" });
 	assert.deepEqual(resolveDefaults(g, parseConfig("{")), { mcp: "ask", builtin: "ask", extension: "ask" });
 	assert.deepEqual(resolveDefaults(parseConfig(`{"defaults":{"mcp":"never"}}`), parseConfig("{")).mcp, "never");
+});
+
+// ---- when (argument predicate) ----------------------------------------------------------------
+
+const tool = mcp("mcp__t__run", "t");
+const whenRule = (verdict: Rule["verdict"], when: Rule["when"], extra: Partial<Rule> = {}): Rule => ({ tool: tool.name, verdict, when, ...extra });
+const verdictFor = (rule: Rule, input: unknown) => decide({ name: tool.name, input }, tool, [rule], D).verdict;
+
+test("when: true matches and false does not, for allow, ask and never", () => {
+	const startsWithGet = (a: unknown) => String((a as any).operation).startsWith("get_");
+	assert.equal(verdictFor(whenRule("never", startsWithGet), { operation: "get_x" }), "never");
+	assert.equal(verdictFor(whenRule("never", startsWithGet), { operation: "put_x" }), "ask", "no match: the mcp default decides");
+	assert.equal(verdictFor(whenRule("ask", startsWithGet), { operation: "get_x" }), "ask");
+	assert.equal(verdictFor(whenRule("allow", startsWithGet), { operation: "get_x" }), "allow");
+	assert.equal(verdictFor(whenRule("allow", startsWithGet), { operation: "put_x" }), "ask", "no match: the mcp default decides");
+});
+
+test("when: a throw, a non-boolean or a Promise is a match for ask and never and no match for allow", () => {
+	const bad: Array<[string, (a: unknown) => any]> = [
+		["throw", () => { throw new Error("boom"); }],
+		["undefined", () => undefined],
+		["truthy string", () => "yes"],
+		["1", () => 1],
+		["null", () => null],
+		["Promise true", () => Promise.resolve(true)],
+		["rejected Promise", () => Promise.reject(new Error("late"))],
+	];
+	for (const [label, when] of bad) {
+		assert.equal(verdictFor(whenRule("never", when), {}), "never", `never, ${label}`);
+		assert.equal(verdictFor(whenRule("ask", when), {}), "ask", `ask, ${label}`);
+		assert.equal(decide(call(tool.name, {}), tool, [whenRule("ask", when)], { ...D, mcp: "allow" }).rules.length, 1, `ask rule applies, ${label}`);
+		assert.equal(decide(call(tool.name, {}), tool, [whenRule("allow", when)], { ...D, mcp: "never" }).verdict, "never", `allow does not apply, ${label}`);
+	}
+});
+
+test("when: input that is not a plain object is a match for ask and never, no match for allow, and the predicate is not called", () => {
+	let calls = 0;
+	const when = () => {
+		calls++;
+		return false;
+	};
+	for (const input of [undefined, null, "text", 5, ["a"]]) {
+		assert.equal(verdictFor(whenRule("never", when), input), "never");
+		assert.equal(verdictFor(whenRule("ask", when), input), "ask");
+		assert.equal(decide({ name: tool.name, input }, tool, [whenRule("allow", when)], { ...D, mcp: "never" }).verdict, "never");
+	}
+	assert.equal(calls, 0);
+});
+
+test("when: must hold together with args", () => {
+	const rule = whenRule("never", (a) => (a as any).n === 2, { args: { kind: "x" } });
+	assert.equal(verdictFor(rule, { kind: "x", n: 2 }), "never");
+	assert.equal(verdictFor(rule, { kind: "y", n: 2 }), "ask", "args fail");
+	assert.equal(verdictFor(rule, { kind: "x", n: 3 }), "ask", "when fails");
+});
+
+test("when: a rule with only a predicate and a rule without one", () => {
+	assert.equal(verdictFor({ tool: tool.name, verdict: "never" }, {}), "never");
+});
+
+test("validateRule: when must be a function", () => {
+	validateRule({ tool: "x", verdict: "never", when: () => true });
+	assert.throws(() => validateRule({ tool: "x", verdict: "never", when: "yes" as any }), /when must be a function/);
+	assert.throws(() => validateRule({ tool: "x", verdict: "allow", when: {} as any }), /when must be a function/);
+});
+
+// ---- reason and title -------------------------------------------------------------------------
+
+test("validateRule: reason only on never, title only on ask, both non-empty and capped", () => {
+	validateRule({ tool: "x", verdict: "never", reason: "Use the ops tool instead." });
+	validateRule({ tool: "x", verdict: "ask", title: "Run a deploy?" });
+	validateRule({ tool: "x", verdict: "never", reason: "r".repeat(MAX_REASON_CHARS) });
+	validateRule({ tool: "x", verdict: "ask", title: "t".repeat(MAX_TITLE_CHARS) });
+	assert.throws(() => validateRule({ tool: "x", verdict: "ask", reason: "why" }), /reason applies only to never/);
+	assert.throws(() => validateRule({ tool: "x", verdict: "allow", reason: "why" }), /reason applies only to never/);
+	assert.throws(() => validateRule({ tool: "x", verdict: "never", title: "t" }), /title applies only to ask/);
+	assert.throws(() => validateRule({ tool: "x", verdict: "never", reason: "" }), /reason must be a non-empty string/);
+	assert.throws(() => validateRule({ tool: "x", verdict: "never", reason: "   " }), /reason must be a non-empty string/);
+	assert.throws(() => validateRule({ tool: "x", verdict: "never", reason: 5 as any }), /reason must be a non-empty string/);
+	assert.throws(() => validateRule({ tool: "x", verdict: "ask", title: "" }), /title must be a non-empty string/);
+	assert.throws(() => validateRule({ tool: "x", verdict: "never", reason: "r".repeat(MAX_REASON_CHARS + 1) }), /at most 500/);
+	assert.throws(() => validateRule({ tool: "x", verdict: "ask", title: "t".repeat(MAX_TITLE_CHARS + 1) }), /at most 100/);
+});
+
+test("snapshotRule: when, reason and title are read once into the frozen copy", () => {
+	let reads = 0;
+	const when = () => true;
+	const rule = { tool: "x", verdict: "never", get when() { reads++; return when; }, get reason() { reads++; return reads > 2 ? "" : "first"; } } as unknown as Rule;
+	const copy = snapshotRule(rule);
+	assert.equal(copy.when, when);
+	assert.equal(copy.reason, "first");
+	assert.equal(reads, 2);
+	assert.equal(Object.isFrozen(copy), true);
+	assert.throws(() => snapshotRule({ tool: "x", verdict: "ask", reason: "nope" }), /reason applies only to never/);
+});
+
+const WRITE_NAME = "mcp__t__put";
+
+// ---- fields a rule does not have --------------------------------------------------------------
+
+test("validateRule rejects a field a rule does not have, naming it", () => {
+	const base = { tool: "x", verdict: "allow" as const };
+	assert.throws(() => validateRule({ ...base, arg: { path: "/safe" } } as unknown as Rule), /no field "arg"/);
+	assert.throws(() => validateRule({ ...base, whn: () => true } as unknown as Rule), /no field "whn"/);
+	assert.throws(() => validateRule({ ...base, verdit: "never" } as unknown as Rule), /no field "verdit"/);
+	assert.throws(() => validateRule({ ...base, window: 1000 } as unknown as Rule), /no field "window"/);
+	assert.throws(() => validateRule({ ...base, [Symbol("x")]: 1 } as unknown as Rule), /symbol key/);
+	assert.throws(() => validateRule({ ...base, a: 1, b: 2 } as unknown as Rule), /no field "a", "b"/);
+	assert.throws(() => validateRule(JSON.parse('{"tool":"x","verdict":"allow","__proto__x":1}')), /no field/);
+	assert.throws(() => validateRule({ ...base, ["y".repeat(100)]: 1 } as unknown as Rule), /y{40}\.\.\./, "a long name is clipped in the message");
+});
+
+test("validateRule still accepts every field a rule has", () => {
+	validateRule({
+		tool: { server: "s", tool: "t" },
+		args: { a: "b" },
+		when: () => true,
+		verdict: "ask",
+		title: "Go?",
+		preview: () => "p",
+		windowMs: 1000,
+		trustedParents: ["p"],
+	});
+	validateRule({ tool: "x", verdict: "never", reason: "why", args: { a: 1 }, when: () => false });
+	validateRule({ tool: "x", verdict: "allow" });
+});
+
+test("a typo'd narrowing field no longer turns an allow rule into a blanket allow", () => {
+	const typo = { tool: WRITE_NAME, verdict: "allow", arg: { path: "/safe" } } as unknown as Rule;
+	assert.throws(() => snapshotRule(typo), /no field "arg"/);
+	assert.throws(() => snapshotRule({ tool: WRITE_NAME, verdict: "allow", whn: (a: any) => a.path === "/safe" } as unknown as Rule), /no field "whn"/);
+});
+
+test("snapshotRule rejects an unknown field before copying, including a non-enumerable or inherited one", () => {
+	assert.throws(() => snapshotRule(Object.defineProperty({ tool: "x", verdict: "never" }, "extra", { get: () => 1, enumerable: false })), /no field "extra"/);
+	const inheritedTypo = Object.create({ whn: () => true });
+	inheritedTypo.tool = "x";
+	inheritedTypo.verdict = "allow";
+	assert.throws(() => snapshotRule(inheritedTypo), /no field "whn"/);
+});
+
+test("a rule built on a prototype still works, and its copy is a plain frozen object of known fields", () => {
+	const copy = snapshotRule(Object.create({ tool: "x", verdict: "never", reason: "why" }));
+	assert.deepEqual(Reflect.ownKeys(copy).sort(), ["reason", "tool", "verdict"]);
+	assert.equal(Object.isFrozen(copy), true);
+});
+
+test("members every object has are not mistaken for typos", () => {
+	validateRule({ tool: "x", verdict: "never" });
+	assert.doesNotThrow(() => snapshotRule({ tool: "x", verdict: "never", ...{} }));
+});
+
+test("RULE_FIELDS is the set of fields the Rule type declares", () => {
+	assert.deepEqual([...RULE_FIELDS].sort(), ["args", "preview", "reason", "title", "tool", "trustedParents", "verdict", "when", "windowMs"]);
 });

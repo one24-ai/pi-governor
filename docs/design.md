@@ -18,13 +18,15 @@ A guard layer that other packages register rules with. One place decides which t
 
 ### Rules
 
-A rule is plain data:
+A rule is plain data. A rule with a field outside the list below is rejected at registration, with the field named: a typo such as `arg` for `args` would otherwise register and leave the narrowing out, so an `allow` rule written for one path would allow every call to the tool (found in review; the fields are `tool`, `args`, `when`, `verdict`, `reason`, `title`, `preview`, `windowMs`, `trustedParents`).
 
 - A tool match: the name pi registers, or a `*` pattern. For MCP tools the name is `mcp__<server>__<tool>`, where pi rewrites every character other than letters, digits and underscore to `_`, and adds an 8-character hash suffix when the name is longer than 64 characters or when two tools sanitize to the same name (see "Match on the name pi registers").
 - An optional narrowing by arguments (for example, only when a given field has a given value). When the input is not a plain object, an `ask` or `never` rule still applies and an `allow` rule does not.
+- An optional predicate, `when(args)`, for what equality cannot say. It is synchronous and runs on the arguments after they were frozen (see "Care needed"), together with the argument narrowing (both must hold). It is not called for input that is not a plain object. Only a strict `true` is a match and a strict `false` is no match; a throw, a Promise or any other value is unusable, and an unusable answer counts as a match for `ask` and `never` (stricter) and as no match for `allow` (an allow must never apply by accident). The client fallback uses the same function, so it behaves the same without a host.
 - A verdict: `allow`, `ask` or `never`.
+- For `never`, an optional `reason` (1 to 500 characters), added to the block message after the instruction not to retry; the first deciding rule that has one supplies it. For `ask`, an optional `title` (1 to 100 characters) for the dialog, shown as `<title> (<tool>)` with the message starting `Tool: <tool>`, so the title cannot replace the tool name. Both are rejected on the other verdicts, and both go through `visible()` and clipping, like every string that reaches the model or the dialog.
 - For `ask`, a `preview(args)` that returns the text the dialog shows, so the user sees the exact values that would be sent.
-- For `ask`, an optional approval window. Without one, every call asks.
+- For `ask`, an optional approval window. Without one, every call asks. The approval key is the tool plus the ids of the deciding rules, so a windowed rule with a predicate approves every call it matches for the window, not one per argument value.
 
 ### Default for tools no rule names
 
@@ -83,7 +85,7 @@ A rule pack that skips the choice fails loudly at registration (it throws), rath
 
 ### Status command
 
-`/governor` lists the live rule packs and their rules, the source defaults and the state of both config files (a broken file is named as broken), the rules that match no live tool, the live approvals with their time left, and whether this session has a guard handler of its own. It says plainly that subagent children are not known to be covered and that the order of `tool_call` handlers across extensions has not been measured, instead of claiming either. A rule that matches no live tool is explained differently before and after any MCP tool is listed, because MCP servers connect in the background.
+`/governor` lists the live rule packs and their rules, the source defaults and the state of both config files (a broken file is named as broken), the rules that match no live tool, the live approvals with their time left, and whether this session has a guard handler of its own. It says plainly that subagent children are not known to be covered and that the order of `tool_call` handlers across extensions has not been measured, instead of claiming either. `/governor revoke` drops every live approval and says how many; any other argument prints a usage line instead of the status. A rule with a predicate is listed as having one, with no text for it. A rule that matches no live tool is explained differently before and after any MCP tool is listed, because MCP servers connect in the background.
 
 ## Findings
 
@@ -112,7 +114,7 @@ Re-measured on 2026-10-14 against pi 1.2.0, which is the pi installed and the ra
   - Deep-freezing `event.input` in a handler that runs first made a later in-place write throw (`Cannot assign to read only property`), which pi turned into a failed call that did not run. So freezing turns the silent change into a blocked call, but it also breaks any extension that patches arguments on purpose, and it was not checked whether a built-in tool writes to its own arguments.
   - Not checked: how installed packages order against `-e` paths beyond what pi's `mergePaths` shows (CLI paths first, then settings), and whether `event.input` can be replaced rather than mutated (the event wraps the validated arguments, so reassigning looks ineffective, not verified).
 
-Not measured: background (async) subagent children, MCP tools inside a child (none registered in the measured child), and any pi version other than 1.1.0 and 1.2.0. TUI mode was run by hand for the status command and the dialog (arrow-key selection of No, the timeout expiring, and approval windows were not exercised).
+Not measured: background (async) subagent children, MCP tools inside a child (none registered in the measured child), and any pi version other than 1.1.0 and 1.2.0. TUI mode was run by hand for the status command and the dialog (the dialog timeout expiring was not exercised in the TUI; arrow-key No, a custom rule title, a windowed approval, its time left in `/governor`, and `/governor revoke` were).
 
 ## Care needed
 

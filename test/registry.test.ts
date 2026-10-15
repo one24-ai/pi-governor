@@ -315,3 +315,56 @@ test("dispose removes the rules from the host and from the queue; session_shutdo
 	queued.dispose();
 	assert.deepEqual(g[PENDING], []);
 });
+
+// ---- when through the client fallback ---------------------------------------------------------
+
+const guarded: Rule = { tool: { server: "t", tool: "create_issue" }, verdict: "never", when: (a) => (a as any).operation === "delete" };
+
+test("whenNoHost block: a predicate rule blocks only the calls it matches", async () => {
+	const pi = fakePi();
+	registerRules(asPi(pi), { id: "p", rules: [guarded], whenNoHost: "block" });
+	assert.equal((await fire(pi, "tool_call", call({ input: { operation: "delete" } })))?.block, true);
+	assert.equal(await fire(pi, "tool_call", call({ input: { operation: "get_x" } })), undefined);
+});
+
+test("whenNoHost block: a throwing or non-boolean predicate on an ask or never rule blocks, and on an allow rule does not", async () => {
+	for (const when of [() => { throw new Error("x"); }, () => "yes", () => Promise.resolve(false)] as Array<(a: unknown) => any>) {
+		reset();
+		const pi = fakePi();
+		registerRules(asPi(pi), { id: "p", rules: [{ ...guarded, when }, { tool: { server: "t", tool: "create_issue" }, verdict: "allow", when }], whenNoHost: "block" });
+		assert.equal((await fire(pi, "tool_call", call({ input: { operation: "get_x" } })))?.block, true);
+	}
+	reset();
+	const pi = fakePi();
+	registerRules(asPi(pi), { id: "p", rules: [{ tool: WRITE.name, verdict: "allow", when: () => { throw new Error("x"); } }], whenNoHost: "block" });
+	assert.equal(await fire(pi, "tool_call", call()), undefined, "allow rules are not enforced without a host");
+});
+
+test("whenNoHost block: input that is not a plain object matches an ask or never predicate rule", async () => {
+	const pi = fakePi();
+	let called = false;
+	registerRules(asPi(pi), { id: "p", rules: [{ ...guarded, when: () => ((called = true), false) }], whenNoHost: "block" });
+	assert.equal((await fire(pi, "tool_call", call({ input: "text" })))?.block, true);
+	assert.equal(called, false);
+});
+
+test("whenNoHost handler: runs only for calls the predicate matches, and gets those rules", async () => {
+	const pi = fakePi();
+	const seen: Array<readonly Rule[]> = [];
+	const handler: NoHostHandler = (_call, _ctx, matched) => {
+		seen.push(matched);
+		return { block: true, reason: "handled" };
+	};
+	registerRules(asPi(pi), { id: "p", rules: [guarded], whenNoHost: handler });
+	assert.equal(await fire(pi, "tool_call", call({ input: { operation: "get_x" } })), undefined);
+	assert.equal(seen.length, 0);
+	assert.equal((await fire(pi, "tool_call", call({ input: { operation: "delete" } })))?.reason, "handled");
+	assert.equal(seen.length, 1);
+	assert.equal(typeof seen[0]![0]!.when, "function");
+});
+
+test("a predicate rule registered with a bad when, reason or title throws at registration", () => {
+	assert.throws(() => registerRules(asPi(fakePi()), { id: "p", rules: [{ ...ask, when: 1 as any }], whenNoHost: "block" }), /when must be a function/);
+	assert.throws(() => registerRules(asPi(fakePi()), { id: "p", rules: [{ ...ask, reason: "r" }], whenNoHost: "block" }), /reason applies only to never/);
+	assert.throws(() => registerRules(asPi(fakePi()), { id: "p", rules: [{ ...ask, verdict: "never", title: "t" }], whenNoHost: "block" }), /title applies only to ask/);
+});

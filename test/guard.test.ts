@@ -340,3 +340,92 @@ test("the reason text is made visible", async () => {
 	const r = await guard.check(event(evil), ctx);
 	assert.ok(!r!.reason!.includes("\x1b"));
 });
+
+// ---- when, reason, title ----------------------------------------------------------------------
+
+test("the predicate runs on the frozen arguments, after freezing and before any dialog", async () => {
+	let seen: any;
+	const when = (args: unknown) => {
+		seen = args;
+		return true;
+	};
+	const { guard, ctx } = setup({ packs: [pack({ tool: WRITE.name, verdict: "never", when })] });
+	const input = { summary: "s", nested: { a: 1 } };
+	const r = await guard.check(event(WRITE.name, input), ctx);
+	assert.equal(r?.block, true);
+	assert.equal(seen, input);
+	assert.equal(Object.isFrozen(seen), true);
+	assert.equal(Object.isFrozen(seen.nested), true);
+	assert.equal(ctx.dialogs.length, 0);
+});
+
+test("a windowed ask rule with a predicate approves every matching call, not per argument value, and not a non-matching one", async () => {
+	const rule: Rule = { tool: WRITE.name, verdict: "ask", windowMs: 60_000, when: (a) => (a as any).operation !== "read" };
+	const { guard, ctx } = setup({ packs: [pack(rule)], answer: true });
+	assert.equal(await guard.check(event(WRITE.name, { operation: "create", id: 1 }), ctx), undefined);
+	assert.equal(await guard.check(event(WRITE.name, { operation: "delete", id: 2 }), ctx), undefined);
+	assert.equal(ctx.dialogs.length, 1, "the second matching call, with other values, is inside the window");
+	// A call the predicate does not match falls to the mcp default (WRITE is not read-only): it asks on its own,
+	// and the window of the predicate rule does not cover it.
+	assert.equal(await guard.check(event(WRITE.name, { operation: "read" }), ctx), undefined);
+	assert.equal(ctx.dialogs.length, 2, "a non-matching call is not covered by the window");
+	assert.equal(guard.approvals().length, 1);
+});
+
+test("a throwing predicate on a never rule blocks, and on an ask rule asks", async () => {
+	const boom = () => {
+		throw new Error("boom");
+	};
+	const a = setup({ packs: [pack({ tool: WRITE.name, verdict: "never", when: boom })] });
+	assert.equal((await a.guard.check(event(WRITE.name, {}), a.ctx))?.block, true);
+	const b = setup({ packs: [pack({ tool: READ.name, verdict: "ask", when: boom })], answer: true });
+	assert.equal(await b.guard.check(event(READ.name, {}), b.ctx), undefined);
+	assert.equal(b.ctx.dialogs.length, 1);
+});
+
+test("never: the rule's reason is added to the block message and the not-retry instruction stays", async () => {
+	const rule: Rule = { tool: WRITE.name, verdict: "never", reason: "Use the ops tool for this." };
+	const { guard, ctx } = setup({ packs: [pack(rule)] });
+	const r = await guard.check(event(WRITE.name), ctx);
+	assert.match(r!.reason!, /never allowed/);
+	assert.match(r!.reason!, /Do not retry it\. Use the ops tool for this\./);
+	assert.match(r!.reason!, /change the pi-governor rules/);
+});
+
+test("never: with several deciding rules the first one with a reason supplies it", async () => {
+	const rules: Rule[] = [
+		{ tool: WRITE.name, verdict: "never" },
+		{ tool: WRITE.name, verdict: "never", reason: "second" },
+		{ tool: WRITE.name, verdict: "never", reason: "third" },
+	];
+	const { guard, ctx } = setup({ packs: [pack(...rules)] });
+	const r = await guard.check(event(WRITE.name), ctx);
+	assert.match(r!.reason!, /second/);
+	assert.doesNotMatch(r!.reason!, /third/);
+});
+
+test("never: the reason is sanitised and clipped like other model-visible text", async () => {
+	const rule = { tool: WRITE.name, verdict: "never", reason: `bad\x1b]52;c;x\x07 \u202e${"z".repeat(900)}` } as Rule;
+	const { guard, ctx } = setup({ packs: [pack(rule)] });
+	const r = await guard.check(event(WRITE.name), ctx);
+	assert.doesNotMatch(r!.reason!, /[\x1b\x07\u202e]/);
+	assert.match(r!.reason!, /<U\+001B>/);
+	assert.match(r!.reason!, /<U\+202E>/);
+	assert.ok(!r!.reason!.includes("z".repeat(501)), "clipped to the cap");
+});
+
+test("ask: the rule's title leads the dialog title, with the tool named, sanitised and clipped", async () => {
+	const plain = setup({ packs: [pack({ tool: WRITE.name, verdict: "ask", title: "Run a deploy?" })], answer: true });
+	await plain.guard.check(event(WRITE.name), plain.ctx);
+	assert.equal(plain.ctx.dialogs[0]!.title, `Run a deploy? (${WRITE.name})`);
+	assert.match(plain.ctx.dialogs[0]!.message, new RegExp(`^Tool: ${WRITE.name}`));
+	const odd = setup({ packs: [pack({ tool: WRITE.name, verdict: "ask", title: `Go\x1b[2J\u202e?\n${"t".repeat(300)}` } as Rule)], answer: true });
+	await odd.guard.check(event(WRITE.name), odd.ctx);
+	const title = odd.ctx.dialogs[0]!.title;
+	assert.doesNotMatch(title, /[\x1b\u202e\n]/);
+	assert.match(title, /<U\+001B>/);
+	assert.match(title, /<U\+202E>/);
+	assert.match(title, /<U\+000A>/);
+	assert.ok(title.length < 200 + WRITE.name.length + 4);
+	assert.ok(title.endsWith(`(${WRITE.name})`), "the tool name is the last thing in the title, after the rule's text");
+});

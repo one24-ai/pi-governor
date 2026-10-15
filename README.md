@@ -21,7 +21,7 @@ pi does not ask before a tool call. Anything the model reads (a chat message, a 
 pi install npm:pi-governor
 ```
 
-It adds one command, `/governor`, which lists the live rule packs, the source defaults, any rule that matches no live tool, the live approvals, and what is not covered. It needs pi 1.2.x (`@earendil-works/pi-coding-agent` `>=1.2.0 <1.3.0`).
+It adds one command, `/governor`, which lists the live rule packs, the source defaults, any rule that matches no live tool, the live approvals, and what is not covered. `/governor revoke` drops every live approval (the next call a window covered asks again) and says how many it dropped; any other argument prints a usage line. It needs pi 1.2.x (`@earendil-works/pi-coding-agent` `>=1.2.0 <1.3.0`).
 
 ## Settings
 
@@ -60,6 +60,25 @@ export default function (pi) {
 `whenNoHost` is required and has no default. It says what happens to the calls your ask and never rules cover when pi-governor is not loaded: `"block"` blocks them, or give a function that decides them itself. Leaving it out throws at registration. Load order does not matter, and your package does not need pi-governor installed to load.
 
 A rule names a tool by its registered name (exact and case-sensitive, `*` is the only wildcard) or by the server and tool names as the server reports them; pi-governor works out the name pi registers, including the hash suffix pi adds when a name is long or collides.
+
+### Rule fields
+
+- `tool`: a registered name, a `*` pattern, or `{ server, tool }`. Works the same with `when`, `reason` and `title`.
+- `verdict`: `allow`, `ask` or `never`.
+- `args`: only when every listed top-level argument equals the given value (`string`, `number`, `boolean` or `null`).
+- `when(args)`: a synchronous check on the arguments, for what equality cannot say (a command text that matches a pattern, an `operation` that starts with `get_`). It must return exactly `true` or `false`, and both `args` and `when` must hold for the rule to apply. It receives the call's arguments after the guard has frozen them, and is not called when the arguments are not a plain object. Fail closed: if `when` throws, returns a Promise or returns anything but a boolean, an `ask` or `never` rule counts as matching (stricter) and an `allow` rule counts as not matching. Arguments that are not a plain object also match an `ask` or `never` rule and not an `allow` rule. `/governor` shows that a rule has a predicate and nothing about what it checks.
+- `reason` (`never` only, 1 to 500 characters): added to the block message after "Do not retry it", so you can tell the model what to do instead. If several `never` rules match, the first one that has a reason supplies it. It is sanitised like any text from a rule.
+- `title` (`ask` only, 1 to 100 characters): the dialog title instead of "Allow <tool>?". The tool name always stays visible: the title becomes `<title> (<tool>)` and the message starts with `Tool: <tool>`, so a title cannot hide which tool is being asked about. With several matching `ask` rules, the first one that has a title supplies it.
+
+A rule with any other field is rejected when it is registered, with the field named, so a typo such as `arg` for `args` cannot silently drop a narrowing.
+- `preview(args)` (`ask` only): the text the dialog shows for the arguments.
+- `windowMs` (`ask` only): approvals last this long. An approval covers the tool and the set of rules that asked, not the argument values: a rule with `when` and `windowMs` is one approval for every call it matches during the window, not one per value. Put anything the user must approve each time in a rule without a window.
+- `trustedParents` (`ask` only): tools that have asked already, whose nested calls skip the dialog.
+
+```ts
+{ tool: "bash", verdict: "never", when: (args) => /\bforce-deploy\b/.test(String(args.command)), reason: "Deploys go through the ops tool." },
+{ tool: { server: "ops", tool: "run" }, verdict: "ask", title: "Run an ops task?", when: (args) => !String(args.operation).startsWith("get_") },
+```
 
 ## What it does not do
 

@@ -22,7 +22,19 @@ export interface Rule {
 	tool: string | { server: string; tool: string };
 	/** Only when every listed top-level argument field equals the given value. */
 	args?: Record<string, ArgValue>;
+	/**
+	 * Narrow by a check on the arguments, together with `args` (both must hold). Synchronous. It is
+	 * not called when the input is not a plain object. Fail closed: `true` is a match and `false` is
+	 * no match; a throw, a Promise or any other non-boolean counts as a match for `ask` and `never`
+	 * rules (stricter) and as no match for an `allow` rule. A rule with `windowMs` that has a `when`
+	 * is approved once for every call it matches in the window, not once per argument value.
+	 */
+	when?: (args: unknown) => boolean;
 	verdict: Verdict;
+	/** For `never`: why, added to the block message after the instruction not to retry. */
+	reason?: string;
+	/** For `ask`: the dialog title, instead of "Allow <tool>?". */
+	title?: string;
 	/** For `ask`: the text the dialog shows for these arguments. */
 	preview?: (args: unknown) => string;
 	/** For `ask`: approvals of this rule last this many milliseconds. Without it, every call asks. */
@@ -36,6 +48,11 @@ export type LiveTool = Pick<ToolInfo, "name" | "namespace" | "annotations" | "so
 
 const RANK: Record<SourceDefault, number> = { allow: 0, hints: 1, ask: 2, never: 3 };
 const VERDICT_RANK: Record<Verdict, number> = { allow: 0, ask: 1, never: 2 };
+
+/** Longest `reason` of a `never` rule, in characters. */
+export const MAX_REASON_CHARS = 500;
+/** Longest `title` of an `ask` rule, in characters. */
+export const MAX_TITLE_CHARS = 100;
 
 export const SOURCES: readonly ConfigurableSource[] = ["mcp", "builtin", "extension"];
 
@@ -145,19 +162,44 @@ export function resolveDefaults(global?: ParsedConfig, project?: ParsedConfig): 
 
 // ---- rules -----------------------------------------------------------------------------------
 
+/** Every field a rule may have. Anything else is rejected, because it is almost always a typo. */
+export const RULE_FIELDS: ReadonlySet<string> = new Set(["tool", "args", "when", "verdict", "reason", "title", "preview", "windowMs", "trustedParents"]);
+
+/**
+ * Reject a field a rule does not have. A typo such as `arg` for `args`, or `whn` for `when`, would
+ * otherwise register without complaint and leave the narrowing out, so an `allow` rule written to
+ * cover one path would cover every call to the tool. Symbol keys are rejected too.
+ */
+function rejectUnknownFields(rule: object): void {
+	// Own keys and keys on the prototype chain: snapshotRule reads fields by name, so a rule built on
+	// a prototype works, and an unknown name there is just as likely to be a typo. Object.prototype
+	// is left out (its members are on every object and cannot be a rule author's typo).
+	const keys = new Set<string | symbol>();
+	for (let o: object | null = rule; o !== null && o !== Object.prototype; o = Object.getPrototypeOf(o)) for (const key of Reflect.ownKeys(o)) keys.add(key);
+	const unknown = [...keys].filter((key) => typeof key !== "string" || !RULE_FIELDS.has(key));
+	if (unknown.length === 0) return;
+	const names = unknown.map((key) => (typeof key === "string" ? `"${key.length > 40 ? `${key.slice(0, 40)}...` : key}"` : "a symbol key")).join(", ");
+	throw new TypeError(`rule has no field ${names}; the fields are ${[...RULE_FIELDS].join(", ")}`);
+}
+
 /**
  * A frozen copy of a rule, validated. Every property is read once, so a rule built with getters
  * cannot pass validation and then change; later edits to the original do not reach the copy. The
- * guard and the registering package's fallback both use the copy.
+ * guard and the registering package's fallback both use the copy. A field a rule does not have is
+ * an error (see `rejectUnknownFields`).
  */
 export function snapshotRule(rule: Rule): Rule {
 	if (!isRecord(rule)) throw new TypeError("rule must be an object");
-	const { tool, args, verdict, preview, windowMs, trustedParents } = rule;
+	rejectUnknownFields(rule);
+	const { tool, args, when, verdict, reason, title, preview, windowMs, trustedParents } = rule;
 	const copy: Record<string, unknown> = {
 		tool: isRecord(tool) ? Object.freeze({ server: tool.server, tool: tool.tool }) : tool,
 		verdict,
 	};
 	if (args !== undefined) copy.args = isRecord(args) ? Object.freeze({ ...args }) : args;
+	if (when !== undefined) copy.when = when;
+	if (reason !== undefined) copy.reason = reason;
+	if (title !== undefined) copy.title = title;
 	if (preview !== undefined) copy.preview = preview;
 	if (windowMs !== undefined) copy.windowMs = windowMs;
 	if (trustedParents !== undefined) copy.trustedParents = Array.isArray(trustedParents) ? Object.freeze([...trustedParents]) : trustedParents;
@@ -165,9 +207,10 @@ export function snapshotRule(rule: Rule): Rule {
 	return Object.freeze(copy) as unknown as Rule;
 }
 
-/** Throws on a rule the layer cannot apply safely. Called at registration. */
+/** Throws on a rule the layer cannot apply safely, including one with a field it does not have. Called at registration. */
 export function validateRule(rule: Rule): void {
 	if (!isRecord(rule)) throw new TypeError("rule must be an object");
+	rejectUnknownFields(rule);
 	if (typeof rule.verdict !== "string" || !Object.hasOwn(VERDICT_RANK, rule.verdict)) {
 		throw new TypeError(`rule verdict must be allow, ask or never, got ${String(rule.verdict)}`);
 	}
@@ -188,6 +231,15 @@ export function validateRule(rule: Rule): void {
 	if (rule.verdict !== "ask" && (rule.preview !== undefined || rule.windowMs !== undefined || rule.trustedParents !== undefined)) {
 		throw new TypeError("preview, windowMs and trustedParents apply only to ask rules");
 	}
+	if (rule.when !== undefined && typeof rule.when !== "function") throw new TypeError("rule when must be a function");
+	if (rule.reason !== undefined) {
+		if (rule.verdict !== "never") throw new TypeError("reason applies only to never rules");
+		checkText("reason", rule.reason, MAX_REASON_CHARS);
+	}
+	if (rule.title !== undefined) {
+		if (rule.verdict !== "ask") throw new TypeError("title applies only to ask rules");
+		checkText("title", rule.title, MAX_TITLE_CHARS);
+	}
 	if (rule.preview !== undefined && typeof rule.preview !== "function") throw new TypeError("rule preview must be a function");
 	if (rule.windowMs !== undefined && !(Number.isFinite(rule.windowMs) && rule.windowMs > 0)) {
 		throw new TypeError("rule windowMs must be a positive number");
@@ -195,6 +247,11 @@ export function validateRule(rule: Rule): void {
 	if (rule.trustedParents !== undefined && (!Array.isArray(rule.trustedParents) || rule.trustedParents.some((p) => typeof p !== "string" || !p))) {
 		throw new TypeError("rule trustedParents must be a list of tool names");
 	}
+}
+
+function checkText(field: string, value: unknown, max: number): void {
+	if (typeof value !== "string" || value.trim().length === 0) throw new TypeError(`rule ${field} must be a non-empty string`);
+	if (value.length > max) throw new TypeError(`rule ${field} must be at most ${max} characters, got ${value.length}`);
 }
 
 /** Exact, case-sensitive match where `*` is the only wildcard. */
@@ -205,14 +262,36 @@ export function matchPattern(pattern: string, name: string): boolean {
 }
 
 /**
- * Whether a rule's argument narrowing applies. Input that is not a plain object cannot be checked,
- * so it counts as a match for `ask` and `never` rules (stricter) and as no match for `allow`.
+ * Whether a rule's argument narrowing (`args` and `when`, both must hold) applies. Input that is
+ * not a plain object cannot be checked, so it counts as a match for `ask` and `never` rules
+ * (stricter) and as no match for `allow`, and `when` is not called for it.
  */
 function argsMatch(rule: Rule, input: unknown): boolean {
 	const want = rule.args;
-	if (!want) return true;
+	if (!want && rule.when === undefined) return true;
 	if (!isRecord(input)) return rule.verdict !== "allow";
-	return Object.entries(want).every(([key, value]) => Object.hasOwn(input, key) && input[key] === value);
+	if (want && !Object.entries(want).every(([key, value]) => Object.hasOwn(input, key) && input[key] === value)) return false;
+	return rule.when === undefined || predicateMatches(rule, input);
+}
+
+/**
+ * Run a rule's `when`. Only a strict `true` or `false` is an answer. A throw or anything else
+ * (a Promise, undefined, a truthy value) is unusable, and that counts as a match unless the rule
+ * is `allow`, so a broken predicate can only make a rule stricter.
+ */
+function predicateMatches(rule: Rule, input: unknown): boolean {
+	const unusable = rule.verdict !== "allow";
+	let result: unknown;
+	try {
+		result = rule.when!(input);
+	} catch {
+		return unusable;
+	}
+	if (result === true) return true;
+	if (result === false) return false;
+	// An async predicate's rejection must not surface as an unhandled rejection.
+	if (result instanceof Promise) result.catch(() => undefined);
+	return unusable;
 }
 
 /**

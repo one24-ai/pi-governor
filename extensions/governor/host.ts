@@ -13,6 +13,7 @@ import { type ConfigSource, globalConfigPath, projectConfigPath, readConfig } fr
 import { Guard } from "./guard.ts";
 import { hostCount, isCovered, livePacks, markCovered, pendingCount, publishHost } from "./registry.ts";
 import { resolveDefaults, resolveFreeze } from "./rules.ts";
+import { clipVisible, visible } from "./sanitize.ts";
 import { buildStatus } from "./status.ts";
 
 let hostCounter = 0;
@@ -56,8 +57,19 @@ export default function governorHost(pi: ExtensionAPI): void {
 		),
 	);
 	pi.registerCommand("governor", {
-		description: "Show pi-governor's live rules, defaults, approvals and what it does not cover",
-		handler: async (_args, ctx) => {
+		description: "Show pi-governor's live rules, defaults, approvals and what it does not cover; \"revoke\" drops every live approval",
+		handler: async (args, ctx) => {
+			const argument = typeof args === "string" ? args.trim() : "";
+			if (argument === "revoke") {
+				const dropped = guard.approvals().length;
+				guard.clearApprovals();
+				ctx.ui.notify(dropped === 0 ? "pi-governor: no live approvals to revoke." : `pi-governor: revoked ${dropped} live approval${dropped === 1 ? "" : "s"}. The next matching call asks again.`, "info");
+				return;
+			}
+			if (argument !== "") {
+				ctx.ui.notify(`pi-governor: unknown argument "${visible(clipVisible(argument, 40).text)}". Usage: /governor (status) or /governor revoke (drop every live approval).`, "warning");
+				return;
+			}
 			let text: string;
 			try {
 				text = buildStatus({

@@ -239,3 +239,22 @@ test("hiddenArguments: a long value is shown by appearing in the preview", () =>
 	assert.deepEqual(hiddenArguments({ body: "this is the whole body" }, "Comment: this is the whole body"), []);
 	assert.deepEqual(hiddenArguments({ body: "this is the whole body" }, "Comment: this is"), ["body (22 characters)"]);
 });
+
+test("buildDialog: a rule's title replaces the default one but the tool is always named", () => {
+	const d = buildDialog({ toolName: "mcp__ops__run", input: { a: "1" }, decision: decision([{ tool: "t", verdict: "ask", title: "Deploy to staging?" }]) });
+	assert.equal(d.title, "Deploy to staging? (mcp__ops__run)");
+	assert.match(d.message, /^Tool: mcp__ops__run\n\na: 1/, "the message opens with the tool name");
+	const plain = buildDialog({ toolName: "t", input: {}, decision: decision([{ tool: "t", verdict: "ask" }]) });
+	assert.equal(plain.title, "Allow t?");
+	assert.ok(!plain.message.startsWith("Tool:"), "the default title already names the tool");
+});
+
+test("buildDialog: a title cannot hide which tool is being asked about", () => {
+	const misleading = buildDialog({ toolName: "mcp__t__delete_everything", input: {}, decision: decision([{ tool: "t", verdict: "ask", title: "Read a harmless file?" }]) });
+	assert.match(misleading.title, /delete_everything/);
+	assert.match(misleading.message.split("\n")[0]!, /delete_everything/);
+	const clipped = buildDialog({ toolName: "x".repeat(300), input: {}, decision: decision([{ tool: "t", verdict: "ask", title: "Go?" }]) });
+	assert.match(clipped.title, /\.\.\.\)$/, "a clipped tool name still shows that it was clipped");
+	const hostile = buildDialog({ toolName: `bad${ESC}[2Jname`, input: {}, decision: decision([{ tool: "t", verdict: "ask", title: "Go?" }]) });
+	assert.ok(!hostile.title.includes(ESC) && !hostile.message.includes(ESC));
+});
