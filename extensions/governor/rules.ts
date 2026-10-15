@@ -73,12 +73,13 @@ export function classify(name: string, tool: LiveTool | undefined): ToolSource {
 // ---- config ----------------------------------------------------------------------------------
 
 export type ParsedConfig =
-	| { ok: true; defaults: Partial<Record<ConfigurableSource, SourceDefault>> }
+	| { ok: true; defaults: Partial<Record<ConfigurableSource, SourceDefault>>; freezeArguments?: boolean }
 	| { ok: false; error: string };
 
 /**
- * Parse a governor.json. Only `{ "defaults": { "<source>": "<value>" } }` is accepted. Unknown
- * keys and values are errors, so a typo cannot quietly leave a source at a looser default.
+ * Parse a governor.json. Only `defaults` (`{ "<source>": "<value>" }`) and `freezeArguments`
+ * (true or false) are accepted. Unknown keys and values are errors, so a typo cannot quietly
+ * leave a source at a looser default or leave freezing off.
  */
 export function parseConfig(text: string): ParsedConfig {
 	let data: unknown;
@@ -88,8 +89,14 @@ export function parseConfig(text: string): ParsedConfig {
 		return { ok: false, error: `not valid JSON: ${(error as Error).message}` };
 	}
 	if (!isRecord(data)) return { ok: false, error: "top level must be an object" };
-	for (const key of Object.keys(data)) if (key !== "defaults") return { ok: false, error: `unknown key "${key}"` };
-	if (data.defaults === undefined) return { ok: true, defaults: {} };
+	for (const key of Object.keys(data)) if (key !== "defaults" && key !== "freezeArguments") return { ok: false, error: `unknown key "${key}"` };
+	let freezeArguments: boolean | undefined;
+	if (Object.hasOwn(data, "freezeArguments")) {
+		if (typeof data.freezeArguments !== "boolean") return { ok: false, error: `"freezeArguments" must be true or false` };
+		freezeArguments = data.freezeArguments;
+	}
+	const extra = freezeArguments === undefined ? {} : { freezeArguments };
+	if (data.defaults === undefined) return { ok: true, defaults: {}, ...extra };
 	if (!isRecord(data.defaults)) return { ok: false, error: `"defaults" must be an object` };
 	const defaults: Partial<Record<ConfigurableSource, SourceDefault>> = {};
 	for (const [key, value] of Object.entries(data.defaults)) {
@@ -97,7 +104,27 @@ export function parseConfig(text: string): ParsedConfig {
 		if (typeof value !== "string" || !Object.hasOwn(RANK, value)) return { ok: false, error: `"defaults.${key}" must be allow, hints, ask or never` };
 		defaults[key as ConfigurableSource] = value as SourceDefault;
 	}
-	return { ok: true, defaults };
+	return { ok: true, defaults, ...extra };
+}
+
+export interface FreezeSetting {
+	enabled: boolean;
+	/** Why, in words for the status command. */
+	reason: string;
+}
+
+/**
+ * Whether a call's arguments are frozen once the guard lets the call through. On unless the
+ * global file turns it off. A project file can only turn it on: a cloned repo must not be able to
+ * switch the protection off. A broken file in either place keeps it on.
+ */
+export function resolveFreeze(global?: ParsedConfig, project?: ParsedConfig): FreezeSetting {
+	if ((global && !global.ok) || (project && !project.ok)) return { enabled: true, reason: "a config file is broken, so the safe setting applies" };
+	if (project?.ok && project.freezeArguments === true) return { enabled: true, reason: "the project file turns it on" };
+	const ignored = project?.ok && project.freezeArguments === false ? " (the project file's false is ignored: a project can only turn it on)" : "";
+	if (global?.ok && global.freezeArguments === false) return { enabled: false, reason: `the global file turns it off${ignored}` };
+	if (global?.ok && global.freezeArguments === true) return { enabled: true, reason: `the global file turns it on${ignored}` };
+	return { enabled: true, reason: `the default${ignored}` };
 }
 
 /**

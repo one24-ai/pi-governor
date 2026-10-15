@@ -9,7 +9,7 @@ import type { ApprovalInfo } from "./guard.ts";
 import { formatDuration } from "./dialog.ts";
 import type { HostPack } from "./registry.ts";
 import { clipVisible, visible } from "./sanitize.ts";
-import { type ConfigurableSource, type LiveTool, type ParsedConfig, type Rule, ruleNamesTool, SOURCES, type SourceDefault } from "./rules.ts";
+import { type ConfigurableSource, type FreezeSetting, type LiveTool, type ParsedConfig, type Rule, ruleNamesTool, SOURCES, type SourceDefault } from "./rules.ts";
 
 export interface ConfigState {
 	path: string;
@@ -27,6 +27,7 @@ export interface StatusInput {
 	tools: readonly LiveTool[];
 	config: { global: ConfigState; project: ConfigState } | undefined;
 	defaults: Record<ConfigurableSource, SourceDefault>;
+	freeze: FreezeSetting;
 	approvals: readonly ApprovalInfo[];
 	now: number;
 }
@@ -47,6 +48,7 @@ function configLine(label: string, state: ConfigState): string {
 	if (state.parsed === undefined) return `  ${label}: ${path} (not present)`;
 	if (!state.parsed.ok) return `  ${label}: ${path} IS BROKEN (${visible(state.parsed.error)}); every source asks until it is fixed`;
 	const set = Object.entries(state.parsed.defaults).map(([k, v]) => `${k}=${v}`);
+	if (state.parsed.freezeArguments !== undefined) set.push(`freezeArguments=${state.parsed.freezeArguments}`);
 	return `  ${label}: ${path} (${set.length ? set.join(", ") : "no defaults set"})`;
 }
 
@@ -70,6 +72,8 @@ export function buildStatus(input: StatusInput): string {
 	} else {
 		lines.push("  The config files have not been read yet (no session_start); the shipped defaults apply.");
 	}
+
+	lines.push("", `Argument freezing: ${input.freeze.enabled ? "ON" : "OFF"} (${visible(input.freeze.reason)})`);
 
 	lines.push("", `Rule packs (${input.packs.length})`);
 	if (input.packs.length === 0) lines.push("  None registered. Only the source defaults apply.");
@@ -104,7 +108,11 @@ export function buildStatus(input: StatusInput): string {
 
 	lines.push("", "Not covered, or not known");
 	lines.push("  Subagent children: not known. A child is covered only if its host loads this extension into it, and this package cannot see how that host does it. Treat children as not covered unless you set that up. A child with no UI blocks every ask call.");
-	lines.push("  Handler order: measured on pi 1.2.0. pi runs tool_call handlers in load order. A handler loaded AFTER this one can change a call's arguments in place once they were checked, and the tool then receives the changed arguments; a handler loaded before it is safe, because this extension sees its changes. This package cannot control load order.");
+	lines.push(
+		input.freeze.enabled
+			? "  Handler order: measured on pi 1.2.0. pi runs tool_call handlers in load order. This extension freezes a call's arguments before it checks them, so a handler loaded after it that edits them in place cannot change what the tool receives: in strict-mode code (every ES module) the write throws and the call fails, otherwise the write is silently ignored. A handler loaded before it is checked as it left the arguments. A value that cannot be frozen (a Map, Set, Date, binary data, a Proxy or an accessor) blocks the call."
+			: "  Handler order: measured on pi 1.2.0. pi runs tool_call handlers in load order. Argument freezing is OFF, so a handler loaded AFTER this one can change a call's arguments in place once they were checked, and the tool then receives the changed arguments; a handler loaded before it is safe. This package cannot control load order.",
+	);
 	lines.push("  Not gated: pi's own process, other extensions' code, and MCP servers, which run with your permissions. For real isolation, run pi in a container.");
 
 	return lines.join("\n");

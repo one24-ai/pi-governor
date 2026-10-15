@@ -195,3 +195,41 @@ test("a tool_call before session_start uses the shipped defaults, and still bloc
 	governorHost(asPi(pi));
 	assert.equal((await emit(pi, "tool_call", call(WRITE.name)))?.block, true);
 });
+
+test("freezeArguments: calls the host lets through are frozen by default, and not when the global file turns it off", async () => {
+	const pi = fakePi();
+	governorHost(asPi(pi));
+	await emit(pi, "session_start", {});
+	const input = { path: "a" };
+	assert.equal(await emit(pi, "tool_call", { toolName: "bash", toolCallId: "c1", input }), undefined);
+	assert.equal(Object.isFrozen(input), true);
+
+	delete g[REGISTRY];
+	writeFileSync(join(agentDir, "governor.json"), JSON.stringify({ freezeArguments: false }));
+	const pi2 = fakePi();
+	governorHost(asPi(pi2));
+	await emit(pi2, "session_start", {});
+	const loose = { path: "a" };
+	assert.equal(await emit(pi2, "tool_call", { toolName: "bash", toolCallId: "c2", input: loose }), undefined);
+	assert.equal(Object.isFrozen(loose), false);
+});
+
+test("freezeArguments: a project file cannot turn freezing off", async () => {
+	mkdirSync(join(projectDir, ".pi"));
+	writeFileSync(join(projectDir, ".pi", "governor.json"), JSON.stringify({ freezeArguments: false }));
+	const pi = fakePi();
+	governorHost(asPi(pi));
+	await emit(pi, "session_start", {});
+	const input = { path: "a" };
+	await emit(pi, "tool_call", { toolName: "bash", toolCallId: "c1", input });
+	assert.equal(Object.isFrozen(input), true);
+});
+
+test("/governor shows whether freezing is on", async () => {
+	const pi = fakePi();
+	governorHost(asPi(pi));
+	await emit(pi, "session_start", {});
+	const notes: string[] = [];
+	await pi.commands.governor!.handler("", { ...ctx(), ui: { notify: (m: string) => notes.push(m) } });
+	assert.match(notes[0]!, /Argument freezing: ON \(the default\)/);
+});

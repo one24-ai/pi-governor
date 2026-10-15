@@ -33,7 +33,9 @@ After the first release it will be `pi install npm:pi-governor`. It adds one com
 { "defaults": { "mcp": "hints", "builtin": "allow", "extension": "allow" } }
 ```
 
-Values are `allow`, `hints` (pass only a declared `readOnlyHint`), `ask` and `never`. `.pi/governor.json` in a project can only tighten these. A file that is missing keys is fine; a file that cannot be read, or has an unknown key or value, makes every source ask until it is fixed.
+Values are `allow`, `hints` (pass only a declared `readOnlyHint`), `ask` and `never`. `.pi/governor.json` in a project can only tighten these.
+
+`"freezeArguments"` (true or false, default true) freezes the arguments of every call before the guard checks it, so a later extension cannot change what was approved (see below). Only the global file can turn it off; a project file can only turn it on. A file that is missing keys is fine; a file that cannot be read, or has an unknown key or value, makes every source ask until it is fixed.
 
 ## Register rules from your package
 
@@ -65,7 +67,7 @@ A rule names a tool by its registered name (exact and case-sensitive, `*` is the
 
 - It cannot limit what an allowed bash command does once it runs (phase 2).
 - Subagent children are covered only if the host that launches them loads this extension into them. `/governor` says so rather than guessing. A child has no UI, so every ask call is blocked there.
-- Another extension's `tool_call` handler that is loaded after this one can change a call's arguments in place after they were checked or approved, and the tool receives the changed arguments (measured on pi 1.1.0, for top-level and codemode calls). One loaded before it is safe: this extension then checks what will actually be sent. Load order is not something this package controls.
+- Another extension can change a call's arguments in place after this one has checked them if it is loaded after this one (measured on pi 1.1.0 and 1.2.0). So this extension freezes the arguments of every call before it checks them: such an edit cannot change what the tool receives. In strict-mode code (every ES module, so any TypeScript extension) the write throws ("Cannot assign to read only property") and pi fails the call without running it; in sloppy-mode code the write is silently ignored and the call runs with the checked arguments. A value that cannot be frozen (a Map, Set, Date, binary data, a Proxy or an accessor) makes the guard block the call; calls the model makes contain none of these, only calls another extension makes itself can. A handler loaded before this one is safe either way, because this extension checks what will actually be sent. The cost is that an extension that edits arguments on purpose will break, and so will a tool that rewrites its own parameters inside its `execute()` (nothing in pi's built-in tools does, but a third-party tool might); none of the extensions checked in the author's setup do. Turn it off with `"freezeArguments": false` in the global file, and `/governor` then says the gap is open.
 - Written and measured against pi 1.2.x (the first measurements were on 1.1.0 and were repeated on 1.2.0). TUI mode was exercised by hand for the status command and the dialog; background subagent children and a child with MCP tools have not been exercised.
 
 See [docs/design.md](docs/design.md) for the design and the measurements behind it.

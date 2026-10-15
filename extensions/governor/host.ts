@@ -2,17 +2,17 @@
  * The guard host: the extension pi loads. It publishes the registry, reads governor.json, and
  * installs the `tool_call` handler that runs Guard for every call, nested calls included.
  *
- * Install this handler first in load order where possible: pi runs `tool_call` handlers one
- * after the other in load order, and a handler that runs later can still change `event.input` in
- * place after the guard has decided (measured on pi 1.1.0 and 1.2.0; see
- * docs/design.md, "Care needed").
+ * pi runs `tool_call` handlers one after the other in load order, and a handler that runs later
+ * could change `event.input` in place after the guard has decided (measured on pi 1.1.0 and 1.2.0;
+ * see docs/design.md, "Care needed"). So the guard freezes the arguments of every call before it
+ * checks it (freeze.ts), unless `freezeArguments` is turned off in governor.json.
  */
 
 import { type ExtensionAPI, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { type ConfigSource, globalConfigPath, projectConfigPath, readConfig } from "./config.ts";
 import { Guard } from "./guard.ts";
 import { hostCount, isCovered, livePacks, markCovered, pendingCount, publishHost } from "./registry.ts";
-import { resolveDefaults } from "./rules.ts";
+import { resolveDefaults, resolveFreeze } from "./rules.ts";
 import { buildStatus } from "./status.ts";
 
 let hostCounter = 0;
@@ -27,6 +27,7 @@ export default function governorHost(pi: ExtensionAPI): void {
 		tools: () => pi.getAllTools(),
 		// Until session_start has read the files, the shipped defaults apply.
 		defaults: () => resolveDefaults(config?.global.parsed, config?.project.parsed),
+		freezeArguments: () => resolveFreeze(config?.global.parsed, config?.project.parsed).enabled,
 	});
 
 	pi.on("session_start", (_event, ctx) => {
@@ -67,6 +68,7 @@ export default function governorHost(pi: ExtensionAPI): void {
 					tools: pi.getAllTools(),
 					config,
 					defaults: resolveDefaults(config?.global.parsed, config?.project.parsed),
+					freeze: resolveFreeze(config?.global.parsed, config?.project.parsed),
 					approvals: guard.approvals(),
 					now: Date.now(),
 				});

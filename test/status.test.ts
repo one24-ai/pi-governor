@@ -20,6 +20,7 @@ const base = (over: Partial<StatusInput> = {}): StatusInput => ({
 	tools: [],
 	config: undefined,
 	defaults: { ...SHIPPED_DEFAULTS },
+	freeze: { enabled: true, reason: "the default" },
 	approvals: [],
 	now: 1_000_000,
 	...over,
@@ -30,8 +31,27 @@ test("the status never claims subagent children or handler order are covered", (
 	assert.match(text, /Subagent children: not known/);
 	assert.match(text, /Treat children as not covered/);
 	assert.match(text, /Handler order: measured on pi 1\.2\.0/);
-	assert.match(text, /loaded AFTER this one can change a call's arguments/);
+	assert.match(text, /freezes a call's arguments/);
+	assert.match(text, /Argument freezing: ON \(the default\)/);
+	assert.match(text, /freezes a call's arguments before it checks them/);
+	assert.match(text, /strict-mode code/);
+	assert.match(text, /cannot be frozen \(a Map, Set, Date, binary data, a Proxy or an accessor\) blocks the call/);
 	assert.match(text, /Not gated: pi's own process/);
+});
+
+test("with freezing off, the status says the gap is open and who it affects", () => {
+	const text = buildStatus(base({ freeze: { enabled: false, reason: "the global file turns it off" } }));
+	assert.match(text, /Argument freezing: OFF \(the global file turns it off\)/);
+	assert.match(text, /freezing is OFF/);
+	assert.match(text, /loaded AFTER this one can change a call's arguments/);
+	assert.match(text, /This package cannot control load order/);
+	assert.ok(!text.includes("freezes a call's arguments"));
+});
+
+test("the config line shows freezeArguments when a file sets it", () => {
+	const ok = parseConfig('{"freezeArguments":false}');
+	const text = buildStatus(base({ config: { global: { path: "/g.json", parsed: ok }, project: { path: "/p.json", parsed: undefined } } }));
+	assert.match(text, /global file: \/g\.json \(freezeArguments=false\)/);
 });
 
 test("a session without a governor handler is called out", () => {

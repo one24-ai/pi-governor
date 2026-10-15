@@ -11,6 +11,7 @@
 
 import type { ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 import { buildDialog, effectiveWindowMs } from "./dialog.ts";
+import { deepFreeze } from "./freeze.ts";
 import type { HostPack } from "./registry.ts";
 import { type ConfigurableSource, decide, type Decision, type LiveTool, type Rule, type SourceDefault } from "./rules.ts";
 import { visible } from "./sanitize.ts";
@@ -43,6 +44,8 @@ export interface GuardDeps {
 	/** The live tool list (`pi.getAllTools()`), read for every call. */
 	tools(): readonly LiveTool[];
 	defaults(): Record<ConfigurableSource, SourceDefault>;
+	/** Freeze the arguments of every call the guard lets through. Default: true (a missing answer is the safe one). */
+	freezeArguments?(): boolean;
 	now?(): number;
 	dialogTimeoutMs?: number;
 	/** Extra time past the dialog's own timeout before the guard stops waiting for a UI that ignores it. */
@@ -104,6 +107,18 @@ export class Guard {
 
 	async check(event: GuardEvent, ctx: GuardContext): Promise<ToolCallEventResult | undefined> {
 		try {
+			// Freeze before anything is decided, and before the first await: a handler that kept a
+			// reference to the arguments (a timer, an async task) must not be able to change them
+			// while the dialog is open or after the rule matched. A call that ends up blocked is
+			// frozen too, which costs nothing because it never runs (freeze.ts).
+			if (this.#deps.freezeArguments?.() !== false) {
+				try {
+					deepFreeze(event.input);
+				} catch (error) {
+					const why = visible(error instanceof Error ? error.message : String(error));
+					return block(`pi-governor could not freeze the arguments of ${visible(event.toolName)} (${why}), so the call was not run. Do not retry it; tell the user.`);
+				}
+			}
 			return await this.#check(event, ctx);
 		} catch (error) {
 			const why = visible(error instanceof Error ? error.message : String(error));
