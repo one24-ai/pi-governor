@@ -31,6 +31,9 @@ export default function governorHost(pi: ExtensionAPI): void {
 export function createGovernorHost(pi: ExtensionAPI, options: HostOptions = {}): void {
 	const loadChildHook = options.loadChildHook ?? loadRequiredChildHook;
 	let children: ChildCoverage = { state: "pending" };
+	// Bumped by every session_start and session_shutdown. A registration that finishes after either
+	// is stale: it is disposed at once instead of being kept for a session that has moved on.
+	let generation = 0;
 	let childRegistration: { dispose(): void } | undefined;
 	const dropChildRegistration = (): void => {
 		try {
@@ -66,17 +69,26 @@ export function createGovernorHost(pi: ExtensionAPI, options: HostOptions = {}):
 
 		// Make every native subagent child of this session load this host (children.ts).
 		dropChildRegistration();
+		const mine = ++generation;
+		children = { state: "pending" };
 		try {
 			// Find pi-subagents where this process loaded it (from its tools' source), before guessing.
+			const sessionId = ctx.sessionManager.getSessionId();
 			const hook = await loadChildHook(hookSpecifiers(pi.getAllTools()));
+			if (mine !== generation) return;
 			if (!hook) {
 				children = { state: "absent" };
 				return;
 			}
-			childRegistration = registerForChildren(hook, ctx.sessionManager.getSessionId(), hostModulePath(import.meta.url));
+			const registration = registerForChildren(hook, sessionId, hostModulePath(import.meta.url));
+			if (mine !== generation) {
+				registration.dispose();
+				return;
+			}
+			childRegistration = registration;
 			children = { state: "registered" };
 		} catch (error) {
-			children = { state: "failed", error: error instanceof Error ? error.message : String(error) };
+			if (mine === generation) children = { state: "failed", error: error instanceof Error ? error.message : String(error) };
 		}
 	});
 	pi.on("tool_execution_start", (event) => guard.noteStart(event.toolCallId, event.toolName));
@@ -128,6 +140,7 @@ export function createGovernorHost(pi: ExtensionAPI, options: HostOptions = {}):
 		},
 	});
 	pi.on("session_shutdown", () => {
+		generation++;
 		dropChildRegistration();
 		children = { state: "pending" };
 		unpublish();

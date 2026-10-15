@@ -54,7 +54,7 @@ function fakePi(tools: LiveTool[] = [WRITE, READ, BASH]) {
 	};
 }
 const asPi = (p: ReturnType<typeof fakePi>) => p as unknown as Parameters<typeof governorHost>[0];
-const session = {};
+const session = { getSessionId: () => "test-session", getSessionFile: () => undefined };
 const ctx = (hasUI = false, answer = true) => ({
 	sessionManager: session,
 	cwd: projectDir,
@@ -369,6 +369,7 @@ test("children: the host looks for pi-subagents where this process loaded it, fi
 	const pkg = mkdtempSync(join(tmpdir(), "governor-subagents-"));
 	try {
 		writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: "pi-subagents", exports: { "./required-child-extensions": { default: "./hook.js" } } }));
+		writeFileSync(join(pkg, "hook.js"), "export {}\n");
 		const pi = fakePi([WRITE, READ, BASH, { name: "subagent", sourceInfo: { path: join(pkg, "index.js"), source: "x", scope: "user", origin: "package", baseDir: pkg } as LiveTool["sourceInfo"] }]);
 		let asked: string[] = [];
 		host(pi, async (specs) => {
@@ -387,4 +388,37 @@ test("children: before session_start the status says not known yet", async () =>
 	const pi = fakePi();
 	host(pi);
 	assert.match(await statusOf(pi), /Subagent children: not known yet/);
+});
+
+test("children: a shutdown while the hook is still loading leaves nothing registered", async () => {
+	const pi = fakePi();
+	const f = fakeHook();
+	let release!: () => void;
+	const gate = new Promise<void>((r) => (release = r));
+	host(pi, async () => (await gate, f.hook));
+	const s = { ...ctx(), sessionManager: { getSessionId: () => "01abc", getSessionFile: () => undefined } };
+	const starting = emit(pi, "session_start", {}, s);
+	await new Promise((r) => setImmediate(r));
+	await emit(pi, "session_shutdown", {}, s);
+	release();
+	await starting;
+	assert.equal(f.calls.length, 0, "nothing registered for a session that ended while loading");
+});
+
+test("children: two overlapping session_starts keep only the newer registration", async () => {
+	const pi = fakePi();
+	const f = fakeHook();
+	const releases: Array<() => void> = [];
+	host(pi, () => new Promise((r) => releases.push(() => r(f.hook))));
+	const s = (id: string) => ({ ...ctx(), sessionManager: { getSessionId: () => id, getSessionFile: () => undefined } });
+	const first = emit(pi, "session_start", {}, s("old"));
+	await new Promise((r) => setImmediate(r));
+	const second = emit(pi, "session_start", {}, s("new"));
+	await new Promise((r) => setImmediate(r));
+	releases[1]!();
+	await second;
+	releases[0]!();
+	await first;
+	assert.deepEqual(f.calls.map((c) => c.sessionId), ["new"], "the stale start never registers");
+	assert.match(await statusOf(pi), /registered pi-governor/);
 });

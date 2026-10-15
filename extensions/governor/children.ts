@@ -19,7 +19,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 /** What this session did about its children, for `/governor`. */
@@ -57,7 +57,12 @@ export function hookFromLoadedPackage(tools: readonly ToolSource[]): string | un
 				if (pkg.name !== "pi-subagents") break;
 				const entry = pkg.exports?.["./required-child-extensions"];
 				const target = typeof entry === "string" ? entry : (entry as { default?: unknown } | undefined)?.default;
-				if (typeof target === "string" && target.startsWith("./")) return pathToFileURL(join(dir, target)).href;
+				if (typeof target !== "string" || !target.startsWith("./")) break;
+				// The entry must stay inside the package: "./../x" starts with "./" and still leaves it.
+				const root = resolve(dir);
+				const file = resolve(root, target);
+				if (!file.startsWith(root + sep) || !existsSync(file)) break;
+				return pathToFileURL(file).href;
 			} catch {
 				// unreadable manifest: keep looking with the next tool
 			}

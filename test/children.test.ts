@@ -31,6 +31,8 @@ function fakePackage(name: string, exportsEntry: unknown, layout: "nested" | "ro
 
 test("hookFromLoadedPackage: finds pi-subagents from a tool's source and follows its exports map", () => {
 	const root = fakePackage("pi-subagents", { types: "./x.d.ts", default: "./src/api/required-child-extensions.js" });
+	mkdirSync(join(root, "src", "api"), { recursive: true });
+	writeFileSync(join(root, "src", "api", "required-child-extensions.js"), "export {}\n");
 	try {
 		const fromPath = hookFromLoadedPackage([{ sourceInfo: { path: join(root, "src", "runs", "index.js") } }]);
 		assert.equal(fromPath, pathToFileURL(join(root, "src", "api", "required-child-extensions.js")).href);
@@ -43,18 +45,25 @@ test("hookFromLoadedPackage: finds pi-subagents from a tool's source and follows
 
 test("hookFromLoadedPackage: a string exports entry, other packages, and odd manifests", () => {
 	const plain = fakePackage("pi-subagents", "./hook.js", "root");
+	writeFileSync(join(plain, "hook.js"), "export {}\n");
 	const other = fakePackage("some-other-package", "./hook.js", "root");
 	const noExport = fakePackage("pi-subagents", undefined, "root");
 	const escaping = fakePackage("pi-subagents", "../../etc/hook.js", "root");
+	const dotEscape = fakePackage("pi-subagents", "./../outside.js", "root");
+	const missingFile = fakePackage("pi-subagents", "./not-there.js", "root");
+	writeFileSync(join(dotEscape, "..", "outside.js"), "export {}\n");
 	try {
 		assert.equal(hookFromLoadedPackage([{ sourceInfo: { baseDir: plain } }]), pathToFileURL(join(plain, "hook.js")).href);
 		assert.equal(hookFromLoadedPackage([{ sourceInfo: { baseDir: other } }]), undefined, "the nearest package.json decides; another package is not pi-subagents");
 		assert.equal(hookFromLoadedPackage([{ sourceInfo: { baseDir: noExport } }]), undefined, "no exports entry: not this way");
-		assert.equal(hookFromLoadedPackage([{ sourceInfo: { baseDir: escaping } }]), undefined, "only ./ entries inside the package");
+		assert.equal(hookFromLoadedPackage([{ sourceInfo: { baseDir: escaping } }]), undefined, "only ./ entries");
+		assert.equal(hookFromLoadedPackage([{ sourceInfo: { baseDir: dotEscape } }]), undefined, "./../x starts with ./ and still leaves the package: refused");
+		assert.equal(hookFromLoadedPackage([{ sourceInfo: { baseDir: missingFile } }]), undefined, "the file must exist");
 		assert.equal(hookFromLoadedPackage([{}, { sourceInfo: {} }]), undefined);
 		assert.equal(hookFromLoadedPackage([{ sourceInfo: { baseDir: other } }, { sourceInfo: { baseDir: plain } }]), pathToFileURL(join(plain, "hook.js")).href, "any tool from pi-subagents will do");
 	} finally {
-		for (const d of [plain, other, noExport, escaping]) rmSync(d, { recursive: true, force: true });
+		rmSync(join(dotEscape, "..", "outside.js"), { force: true });
+		for (const d of [plain, other, noExport, escaping, dotEscape, missingFile]) rmSync(d, { recursive: true, force: true });
 	}
 });
 

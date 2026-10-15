@@ -61,7 +61,7 @@ export function describeChildren(children: ChildCoverage): string[] {
 	switch (children.state) {
 		case "registered":
 			return [
-				"  Subagent children: this session registered pi-governor with pi-subagents, so every native Pi child it starts loads pi-governor, even an agent whose own extensions list leaves it out. A foreground child shares this process and its rule packs. A background child is a process of its own: it has the source defaults, but a pack's rules only if that pack loads in it too. A child has no UI, so every ask call there is blocked. Not covered: external CLI runners and other machines, which pi-subagents runs without required extensions.",
+				"  Subagent children: this session registered pi-governor with pi-subagents, so every native Pi child it starts loads pi-governor, even an agent whose own extensions list leaves it out. A foreground child shares this process and its rule packs. A background child is a process of its own: it has the source defaults, but a pack's rules only if that pack loads in it too. A child has no UI, so every ask call there is blocked. Not covered: external CLI runners, which pi-subagents runs without required extensions. A launch on another machine (pane-native remote Pi) is refused while this is registered, because pi-subagents cannot carry the extension there. A child started in the moment before registration finished gets no governor.",
 			];
 		case "absent":
 			return [

@@ -128,7 +128,8 @@ test("a rule with a predicate is shown as having one, without any text for it", 
 
 test("child coverage is described by what this session actually did", () => {
 	assert.match(buildStatus(base({ children: { state: "registered" } })), /every native Pi child it starts loads pi-governor/);
-	assert.match(buildStatus(base({ children: { state: "registered" } })), /Not covered: external CLI runners and other machines/);
+	assert.match(buildStatus(base({ children: { state: "registered" } })), /Not covered: external CLI runners/);
+	assert.match(buildStatus(base({ children: { state: "registered" } })), /another machine .* is refused/);
 	assert.match(buildStatus(base({ children: { state: "registered" } })), /a pack's rules only if that pack loads in it too/);
 	assert.match(buildStatus(base({ children: { state: "absent" } })), /not known\. pi-subagents was not found/);
 	const failed = buildStatus(base({ children: { state: "failed", error: `boom\x1b[2J${"x".repeat(500)}` } }));
