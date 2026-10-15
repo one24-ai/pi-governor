@@ -2,7 +2,7 @@
 
 A guard layer for [pi](https://pi.dev) tool calls. It decides, in one place, which tool calls the model may make, which need your approval first, and which are never allowed. Other packages register rules with it. It was called pi-containment until the rename; the `pi-containment` placeholder on npm is deprecated.
 
-Status: phase 1 (rules for every tool call) is built and not yet released. Phase 2, an optional OS sandbox for bash, is design only.
+Status: phase 1 (rules for every tool call) is built. Phase 2, an optional OS sandbox for bash, is design only.
 
 It is not a full sandbox. It gates tool calls (including MCP and extension tools). pi's own process, other extensions' code and MCP servers still run with your permissions. For full isolation, run pi in a container (see pi's `docs/containerization.md`).
 
@@ -17,13 +17,11 @@ pi does not ask before a tool call. Anything the model reads (a chat message, a 
 
 ## Install
 
-Not published yet, so for now install from a checkout:
-
 ```bash
-pi install /path/to/pi-governor
+pi install npm:pi-governor
 ```
 
-After the first release it will be `pi install npm:pi-governor`. It adds one command, `/governor`, which lists the live rule packs, the source defaults, any rule that matches no live tool, the live approvals, and what is not covered.
+It adds one command, `/governor`, which lists the live rule packs, the source defaults, any rule that matches no live tool, the live approvals, and what is not covered. It needs pi 1.2.x (`@earendil-works/pi-coding-agent` `>=1.2.0 <1.3.0`).
 
 ## Settings
 

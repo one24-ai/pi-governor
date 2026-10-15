@@ -10,6 +10,9 @@
     "url": "git+https://github.com/one24-ai/pi-governor.git"
   },
   "homepage": "https://github.com/one24-ai/pi-governor#readme",
+  "bugs": {
+    "url": "https://github.com/one24-ai/pi-governor/issues"
+  },
   "engines": {
     "node": ">=22.19.0"
   },
@@ -20,28 +23,6 @@
     "permissions",
     "sandbox"
   ],
-  "files": [
-    "dist",
-    "extensions",
-    "README.md",
-    "CHANGELOG.md",
-    "LICENSE"
-  ],
-  "scripts": {
-    "build": "node scripts/link-pi.mjs && rm -rf dist && tsc -p tsconfig.build.json",
-    "test": "node scripts/link-pi.mjs && node --experimental-strip-types --no-warnings --test test/*.test.ts",
-    "typecheck": "node scripts/link-pi.mjs && tsc --noEmit",
-    "link-pi": "node scripts/link-pi.mjs",
-    "check": "pnpm test && pnpm typecheck && pnpm build",
-    "prepack": "pnpm build"
-  },
-  "peerDependencies": {
-    "@earendil-works/pi-coding-agent": ">=1.2.0 <1.3.0"
-  },
-  "devDependencies": {
-    "@types/node": "24.10.1",
-    "typescript": "5.9.3"
-  },
   "exports": {
     ".": {
       "types": "./dist/governor/index.d.ts",
@@ -57,5 +38,32 @@
     "extensions": [
       "./extensions/governor/host.ts"
     ]
+  },
+  "files": [
+    "dist",
+    "extensions",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "build": "node scripts/link-pi.mjs && rm -rf dist && tsc -p tsconfig.build.json",
+    "test": "node scripts/link-pi.mjs && node --experimental-strip-types --no-warnings --test test/*.test.ts",
+    "typecheck": "node scripts/link-pi.mjs && tsc --noEmit",
+    "link-pi": "node scripts/link-pi.mjs",
+    "check": "pnpm test && pnpm typecheck && pnpm build",
+    "prepack": "pnpm build",
+    "release": "node scripts/release.mjs"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=1.2.0 <1.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "typescript": "5.9.3"
   }
 }
