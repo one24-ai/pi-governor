@@ -118,3 +118,10 @@ test("a long rule list is cut and says how many are left", () => {
 	const rules: Rule[] = Array.from({ length: 30 }, (_, i) => ({ tool: `tool_${i}`, verdict: "never" }) as Rule);
 	assert.match(buildStatus(base({ packs: [pack("big", ...rules)] })), /\.\.\. and 18 more/);
 });
+
+test("a rule with a predicate is shown as having one, without any text for it", () => {
+	const secret = (a: unknown) => String(a) === "SECRET-PATTERN";
+	const text = buildStatus(base({ packs: [pack("p", { tool: WRITE.name, verdict: "never", when: secret, reason: "private reason text" })], tools: [WRITE] }));
+	assert.match(text, /never mcp__t__create_issue, narrowed by a predicate/);
+	assert.doesNotMatch(text, /SECRET-PATTERN|private reason text/);
+});

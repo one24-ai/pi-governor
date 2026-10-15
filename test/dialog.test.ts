@@ -239,3 +239,9 @@ test("hiddenArguments: a long value is shown by appearing in the preview", () =>
 	assert.deepEqual(hiddenArguments({ body: "this is the whole body" }, "Comment: this is the whole body"), []);
 	assert.deepEqual(hiddenArguments({ body: "this is the whole body" }, "Comment: this is"), ["body (22 characters)"]);
 });
+
+test("buildDialog: a rule's title replaces the default one", () => {
+	const d = buildDialog({ toolName: "t", input: {}, decision: decision([{ tool: "t", verdict: "ask", title: "Deploy to staging?" }]) });
+	assert.equal(d.title, "Deploy to staging?");
+	assert.equal(buildDialog({ toolName: "t", input: {}, decision: decision([{ tool: "t", verdict: "ask" }]) }).title, "Allow t?");
+});

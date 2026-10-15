@@ -13,8 +13,8 @@ import type { ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 import { buildDialog, effectiveWindowMs } from "./dialog.ts";
 import { deepFreeze } from "./freeze.ts";
 import type { HostPack } from "./registry.ts";
-import { type ConfigurableSource, decide, type Decision, type LiveTool, type Rule, type SourceDefault } from "./rules.ts";
-import { visible } from "./sanitize.ts";
+import { type ConfigurableSource, decide, type Decision, type LiveTool, MAX_REASON_CHARS, type Rule, type SourceDefault } from "./rules.ts";
+import { clipVisible, visible } from "./sanitize.ts";
 
 /** How long a dialog waits for an answer before it counts as a decline. */
 export const DEFAULT_DIALOG_TIMEOUT_MS = 120_000;
@@ -134,7 +134,9 @@ export class Guard {
 
 		if (decision.verdict === "allow") return undefined;
 		if (decision.verdict === "never") {
-			return block(`${name} is never allowed here: ${visible(decision.why)}. Do not retry it. If the user wants it, they can change the pi-governor rules or run it themselves.`);
+			const reason = decision.rules.find((rule) => typeof rule.reason === "string" && rule.reason.length > 0)?.reason;
+			const given = reason === undefined ? "" : ` ${clipVisible(reason, MAX_REASON_CHARS).text}`;
+			return block(`${name} is never allowed here: ${visible(decision.why)}. Do not retry it.${given} If the user wants it, they can change the pi-governor rules or run it themselves.`);
 		}
 		if (decision.verdict !== "ask") return block(`pi-governor reached an unexpected verdict for ${name}, so the call was not run. Do not retry it; tell the user.`);
 		if (this.#parentIsTrusted(event, decision)) return undefined;

@@ -10,7 +10,7 @@
  * - everything goes through `visible()`, so control and invisible characters show as markers.
  */
 
-import type { Decision, Rule } from "./rules.ts";
+import { type Decision, MAX_TITLE_CHARS, type Rule } from "./rules.ts";
 import { clipVisible, visible } from "./sanitize.ts";
 
 /** Characters of one argument value in the default view. */
@@ -160,8 +160,9 @@ export function buildDialog({ toolName, input, decision }: DialogInput): Dialog 
 	const window = effectiveWindowMs(decision.rules);
 	if (window !== undefined) notes.push(`If you allow this, ${name.text} also runs without asking for the next ${formatDuration(window)}.`);
 
+	const ruleTitle = decision.rules.find((r) => typeof r.title === "string" && r.title.length > 0)?.title;
 	return {
-		title: `Allow ${name.text}${name.clipped ? "..." : ""}?`,
+		title: ruleTitle === undefined ? `Allow ${name.text}${name.clipped ? "..." : ""}?` : clipVisible(ruleTitle, MAX_TITLE_CHARS).text,
 		message: `${shown}\n\n${notes.join("\n")}`,
 	};
 }

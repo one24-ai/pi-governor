@@ -38,6 +38,7 @@ function describeRule(rule: Rule): string {
 	const tool = typeof rule.tool === "string" ? rule.tool : `${rule.tool.server} / ${rule.tool.tool}`;
 	const parts = [`${rule.verdict.padEnd(5)} ${clipVisible(tool, 80).text}`];
 	if (rule.args) parts.push(`when ${Object.keys(rule.args).map((k) => clipVisible(k, 30).text).join(", ")} match`);
+	if (rule.when) parts.push("narrowed by a predicate (code, not shown)");
 	if (rule.windowMs !== undefined) parts.push(`window ${formatDuration(rule.windowMs)}`);
 	if (rule.trustedParents?.length) parts.push(`trusts ${rule.trustedParents.map((p) => clipVisible(p, 30).text).join(", ")}`);
 	return parts.join(", ");
